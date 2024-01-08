@@ -1,0 +1,22 @@
+{
+  "name": "metrics",
+  "version": "0.0.1",
+  "description": "Metrics plugin for DSO console",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "rm -rf dist && tsc"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@keycloak/keycloak-admin-client": "^22.0.5",
+    "@kubernetes/client-node": "^0.20.0",
+    "axios": "^1.6.2",
+    "typescript-transform-paths": "^3.4.6"
+  },
+  "devDependencies": {
+    "@dso-console/server": "^6.4.0",
+    "@types/node": "^20.9.4"
+  }
+}
