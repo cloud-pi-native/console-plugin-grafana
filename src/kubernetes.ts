@@ -1,17 +1,17 @@
 import { createCustomObjectsApi } from './k8sApi.js'
 import { grafanaHost, keycloakClientSecret, keycloakUrl, mimirUrl } from './utils.js'
 
-const getGrafanaObject = (project: string) => {
+const getGrafanaObject = (instanceName: string, roleAttributePath) => {
   return {
     apiVersion: 'grafana.integreatly.org/v1beta1',
     kind: 'Grafana',
     metadata: {
       labels: {
-        app: `${project}`,
+        app: `${instanceName}`,
         dashboards: 'default',
         'app.kubernetes.io/managed-by': 'dso-console',
       },
-      name: `${project}`,
+      name: `${instanceName}`,
       namespace: 'infra-grafana',
     },
     spec: {
@@ -27,14 +27,14 @@ const getGrafanaObject = (project: string) => {
           email_attribute_path: 'email',
           groups_attribute_path: 'group',
           enabled: 'true',
-          role_attribute_path: "contains(groups[*], '/grafana-rw') && 'Editor' || contains(groups[*], '/grafana-ro') && 'Viewer'",
+          role_attribute_path: roleAttributePath,
           role_attribute_strict: 'true',
           scopes: 'profile, group, email, openid',
           tls_skip_verify_insecure: 'true',
           token_url: `${keycloakUrl}/realms/dso/protocol/openid-connect/token`,
         },
         server: {
-          root_url: `https://${grafanaHost}/${project}/`,
+          root_url: `https://${grafanaHost}/${instanceName}/`,
           serve_from_sub_path: 'true',
         },
       },
@@ -55,7 +55,7 @@ const getGrafanaObject = (project: string) => {
         metadata: {},
         spec: {
           host: `${grafanaHost}`,
-          path: `/${project}`,
+          path: `/${instanceName}`,
           port: {
             targetPort: 3000,
           },
@@ -64,7 +64,7 @@ const getGrafanaObject = (project: string) => {
           },
           to: {
             kind: 'Service',
-            name: `${project}-service`,
+            name: `${instanceName}-service`,
             weight: 100,
           },
           wildcardPolicy: 'None',
@@ -74,12 +74,12 @@ const getGrafanaObject = (project: string) => {
   }
 }
 
-const getGrafanaPrometheusDataSourceObject = (env: string, project: string) => {
+const getGrafanaPrometheusDataSourceObject = (cluster, project, grafanaName, datasourceName, stage) => {
   return {
     apiVersion: 'grafana.integreatly.org/v1beta1',
     kind: 'GrafanaDatasource',
     metadata: {
-      name: `datasource-${project}`,
+      name: `${datasourceName}`,
       namespace: 'infra-grafana',
       labels: {
         'app.kubernetes.io/managed-by': 'dso-console',
@@ -99,7 +99,7 @@ const getGrafanaPrometheusDataSourceObject = (env: string, project: string) => {
         secureJsonData: {
           // eslint-disable-next-line no-template-curly-in-string
           basicAuthPassword: '${PROMETHEUS_PASSWORD}',
-          httpHeaderValue1: `c7-${env}`,
+          httpHeaderValue1: `${cluster.label}-${project}-${stage}`,
         },
         type: 'prometheus',
         uid: 'prometheus',
@@ -107,7 +107,7 @@ const getGrafanaPrometheusDataSourceObject = (env: string, project: string) => {
       },
       instanceSelector: {
         matchLabels: {
-          app: project,
+          app: `${grafanaName}`,
         },
       },
       valuesFrom: [
@@ -134,12 +134,12 @@ const getGrafanaPrometheusDataSourceObject = (env: string, project: string) => {
   }
 }
 
-const getGrafanaAlertManagerDataSourceObject = (env: string, project: string) => {
+const getGrafanaAlertManagerDataSourceObject = (cluster, project, grafanaName, datasourceName, stage) => {
   return {
     apiVersion: 'grafana.integreatly.org/v1beta1',
     kind: 'GrafanaDatasource',
     metadata: {
-      name: `alertmanager-${project}`,
+      name: `${datasourceName}`,
       namespace: 'infra-grafana',
       labels: {
         'app.kubernetes.io/managed-by': 'dso-console',
@@ -159,7 +159,7 @@ const getGrafanaAlertManagerDataSourceObject = (env: string, project: string) =>
         secureJsonData: {
           // eslint-disable-next-line no-template-curly-in-string
           basicAuthPassword: '${PROMETHEUS_PASSWORD}',
-          httpHeaderValue1: `c7-${env}`,
+          httpHeaderValue1: `${cluster.label}-${project}-${stage}`,
         },
         type: 'alertmanager',
         uid: 'alertmanager',
@@ -167,7 +167,7 @@ const getGrafanaAlertManagerDataSourceObject = (env: string, project: string) =>
       },
       instanceSelector: {
         matchLabels: {
-          app: `${project}`,
+          app: `${grafanaName}`,
         },
       },
       valuesFrom: [
@@ -194,49 +194,37 @@ const getGrafanaAlertManagerDataSourceObject = (env: string, project: string) =>
   }
 }
 
-export const createGrafanaInstance = async (cluster, project: string) => {
+export const createGrafanaInstance = async (cluster, instanceName: string, roleAttributePath: string) => {
   const customObjectsApi = await createCustomObjectsApi(cluster)
   try {
-    customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanas', getGrafanaObject(project))
+    customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanas', getGrafanaObject(instanceName, roleAttributePath))
   } catch {
     console.error('Something happend while creating grafana instance')
   }
 }
 
-export const createDataSourcePrometheus = async (cluster, project: string, env: string) => {
+export const createDataSourcePrometheus = async (cluster, project, grafanaName, datasourceName, stage) => {
   const customObjectsApi = await createCustomObjectsApi(cluster)
   try {
-    customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanadatasources', getGrafanaPrometheusDataSourceObject(env, project))
+    customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanadatasources', getGrafanaPrometheusDataSourceObject(cluster, project, grafanaName, datasourceName, stage))
   } catch {
     console.error('Something happend while creating prometheus datasource')
   }
 }
 
-export const createDataSourceAlertmanager = async (cluster, project: string, env: string) => {
+export const createDataSourceAlertmanager = async (cluster, project, grafanaName, datasourceName, stage) => {
   const customObjectsApi = await createCustomObjectsApi(cluster)
   try {
-    customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanadatasources', getGrafanaAlertManagerDataSourceObject(env, project))
+    customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanadatasources', getGrafanaAlertManagerDataSourceObject(cluster, project, grafanaName, datasourceName, stage))
   } catch {
     console.error('Something happend while creating prometheus datasource')
   }
 }
 
-export const instanceExist = async (project: string): Promise<boolean> => {
-  const result = await fetch(`https://${grafanaHost}/${project}`).then(response => {
-    if (response.status === 200) {
-      return true
-    } else return false
-  }).catch(() => {
-    return false
-  })
-  return result
-}
-
-export const grafanaExist = async (project: string, cluster) => {
+export const grafanaExist = async (cluster, instanceName: string) => {
   const customObjectsApi = await createCustomObjectsApi(cluster)
   try {
-    const result = await customObjectsApi.getNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanas', project)
-    console.log(JSON.stringify(result.body))
+    const result = await customObjectsApi.getNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanas', instanceName)
     return true
   } catch {
     console.log('Grafana instance not exist')
@@ -244,11 +232,10 @@ export const grafanaExist = async (project: string, cluster) => {
   }
 }
 
-export const datasourceExist = async (project: string, cluster, datasource: string) => {
+export const datasourceExist = async (cluster, datasource: string) => {
   const customObjectsApi = await createCustomObjectsApi(cluster)
   try {
     const result = await customObjectsApi.getNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanadatasources', datasource)
-    console.log(JSON.stringify(result.body))
     return true
   } catch {
     console.log(`Datasource ${datasource} instance not exist`)
@@ -256,22 +243,42 @@ export const datasourceExist = async (project: string, cluster, datasource: stri
   }
 }
 
-export const deleteGrafana = async (project: string, cluster) => {
+export const deleteGrafana = async (cluster, grafanaName) => {
   const customObjectsApi = await createCustomObjectsApi(cluster)
   try {
-    const result = await customObjectsApi.deleteNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanas', project)
-    console.log(JSON.stringify(result.body))
+    const result = await customObjectsApi.deleteNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanas', grafanaName)
+    console.log(`instance ${grafanaName} deleted`)
   } catch (e) {
     console.log(e)
   }
 }
 
-export const deleteDatasource = async (project: string, datasource: string, cluster) => {
+export const deleteDatasource = async (cluster, datasource: string) => {
   const customObjectsApi = await createCustomObjectsApi(cluster)
   try {
     const result = await customObjectsApi.deleteNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanadatasources', datasource)
-    console.log(JSON.stringify(result.body))
+    console.log(`datasource: ${datasource} deleted`)
   } catch (e) {
     console.log(e)
   }
+}
+
+export const containsProd = (environments): boolean => {
+  let tem = false
+  environments.forEach(env => {
+    if (env.stage === 'prod') {
+      tem = true
+    }
+  })
+  return tem
+}
+
+export const containsHorsProd = (environments): boolean => {
+  let tem = false
+  environments.forEach(env => {
+    if (env.stage !== 'prod') {
+      tem = true
+    }
+  })
+  return tem
 }
