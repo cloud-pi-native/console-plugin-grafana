@@ -4,13 +4,6 @@ import { kubeconfigCtx, kubeconfigPath } from './utils.js'
 
 export const createCustomObjectsApi = async () => {
   const kc = new KubeConfig()
-  if (kubeconfigPath) {
-    kc.loadFromFile(kubeconfigPath)
-    if (kubeconfigCtx) {
-      kc.setCurrentContext(kubeconfigCtx)
-    }
-  } else {
-    kc.loadFromCluster()
-  }
+  kc.loadFromCluster()
   return kc.makeApiClient(k8s.CustomObjectsApi)
 }

@@ -210,7 +210,8 @@ export const createDataSourcePrometheus = async (project, grafanaName, datasourc
     const result = await customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanadatasources', getGrafanaPrometheusDataSourceObject(project, grafanaName, datasourceName, stage))
     console.log(`Grafana ${datasourceName} created`)
     console.debug(JSON.stringify(result.body))
-  } catch {
+  } catch (e) {
+    console.error(e)
     console.error('Something happend while creating prometheus datasource')
   }
 }
