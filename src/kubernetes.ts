@@ -359,18 +359,6 @@ const supprimerElement = (chaineOriginale, elementASupprimer) => {
   return resultat
 }
 
-export const updateDatasourcewithHeader = async (cluster, datasourceName, headerValue) => {
-  const datasourceObject = await getExistingDatasourceObject(cluster, `${datasourceName}`)
-  if (datasourceObject) {
-    const existingClusters = getClustersHeader(datasourceObject)
-    if (!existingClusters.includes(cluster.label)) {
-      const newHeader = formatAddDataSourceHeader(datasourceObject, headerValue)
-      datasourceObject.spec.datasource.secureJsonData.httpHeaderValue1 = newHeader
-      await updateDataSource(cluster, datasourceObject)
-    }
-  }
-}
-
 export const handleInit = async (cluster, grafanaName, project, projectName, stage) => {
   const grafanaCrdExist = await grafanaExist(cluster, grafanaName)
   const datasourcePromExist = await datasourceExist(cluster, `datasource-prom-${grafanaName}`)
