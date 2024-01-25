@@ -16,7 +16,7 @@
     "typescript-transform-paths": "^3.4.6"
   },
   "devDependencies": {
-    "@dso-console/server": "^6.4.0",
+    "@dso-console/server": "^6.5.0",
     "@types/node": "^20.9.4"
   }
 }
