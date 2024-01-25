@@ -1,18 +1,16 @@
 import { KubeConfig } from '@kubernetes/client-node'
-import { ClusterModel } from '@dso-console/shared/src/resources/cluster/index.js'
 import * as k8s from '@kubernetes/client-node'
+import { kubeconfigCtx, kubeconfigPath } from './utils.js'
 
-export const createCustomObjectsApi = async (cluster: ClusterModel) => {
+export const createCustomObjectsApi = async () => {
   const kc = new KubeConfig()
-  const clusterConfig = {
-    ...cluster.cluster,
-    skipTLSVerify: cluster.cluster.skipTLSVerify ?? false,
+  if (kubeconfigPath) {
+    kc.loadFromFile(kubeconfigPath)
+    if (kubeconfigCtx) {
+      kc.setCurrentContext(kubeconfigCtx)
+    }
+  } else {
+    kc.loadFromCluster()
   }
-  const userConfig = {
-    ...cluster.user,
-    name: cluster.id,
-  }
-  if (cluster.cluster.skipTLSVerify) delete clusterConfig.caData
-  kc.loadFromClusterAndUser(clusterConfig, userConfig)
   return kc.makeApiClient(k8s.CustomObjectsApi)
 }

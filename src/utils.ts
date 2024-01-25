@@ -1,7 +1,5 @@
 import KeycloakAdminClient from '@keycloak/keycloak-admin-client'
-import KcAdminClient from '@keycloak/keycloak-admin-client'
 import GroupRepresentation from '@keycloak/keycloak-admin-client/lib/defs/groupRepresentation.js'
-import UserRepresentation from '@keycloak/keycloak-admin-client/lib/defs/userRepresentation.js'
 
 export const keycloakUrl = process.env.KEYCLOAK_URL
 export const keycloakClientSecret = process.env.KEYCLOAK_CLIENT_SECRET_GRAFANA
@@ -12,10 +10,11 @@ export const keycloakDomain = process.env.KEYCLOAK_DOMAIN
 export const keycloakRealm = process.env.KEYCLOAK_REALM
 export const keycloakToken = process.env.KEYCLOAK_ADMIN_PASSWORD
 export const keycloakUser = process.env.KEYCLOAK_ADMIN
-
+export const kubeconfigPath = process.env.KUBECONFIG_PATH
+export const kubeconfigCtx = process.env.KUBECONFIG_CTX
 
 export const getkcClient = async () => {
-  const kcClient = new KcAdminClient({
+  const kcClient = new KeycloakAdminClient({
     baseUrl: `${keycloakProtocol}://${keycloakDomain}`,
   })
 
@@ -39,7 +38,7 @@ export const createKeycloakGroups = async (organization, project, owner) => {
   console.log('create keycloak group')
   const projectName = `${organization}-${project}`
   const projectGroup = await getKeycloakGroupByName(kcClient, projectName)
-  const subGroupName = `metrics`
+  const subGroupName = 'metrics'
   if (!projectGroup) throw Error(`Unable to find parent group '/${projectGroup}'`)
   let group = projectGroup.subGroups.find(subGrp => subGrp.name === subGroupName)
   if (!group) {
@@ -48,10 +47,10 @@ export const createKeycloakGroups = async (organization, project, owner) => {
     }, {
       name: subGroupName,
     })
-    const roGroupProd = await kcClient.groups.createChildGroup({ id: group.id }, { name: `grafana-prod-view` })
-    const rwGroupProd = await kcClient.groups.createChildGroup({ id: group.id }, { name: `grafana-prod-edit` })
-    const roGroupHorsProd = await kcClient.groups.createChildGroup({ id: group.id }, { name: `grafana-hors-prod-view` })
-    const rwGroupHorsProd = await kcClient.groups.createChildGroup({ id: group.id }, { name: `grafana-hors-prod-edit` })
+    const roGroupProd = await kcClient.groups.createChildGroup({ id: group.id }, { name: 'grafana-prod-view' })
+    const rwGroupProd = await kcClient.groups.createChildGroup({ id: group.id }, { name: 'grafana-prod-edit' })
+    const roGroupHorsProd = await kcClient.groups.createChildGroup({ id: group.id }, { name: 'grafana-hprod-view' })
+    const rwGroupHorsProd = await kcClient.groups.createChildGroup({ id: group.id }, { name: 'grafana-hprod-edit' })
     await kcClient.users.addToGroup({ id: owner.id, groupId: roGroupProd.id })
     await kcClient.users.addToGroup({ id: owner.id, groupId: rwGroupProd.id })
     await kcClient.users.addToGroup({ id: owner.id, groupId: roGroupHorsProd.id })
