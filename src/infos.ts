@@ -1,17 +1,18 @@
 // @ts-nocheck
 
 import type { ServiceInfos } from '@dso-console/server/src/plugins/services.js'
+import { grafanaHost } from './utils.js'
 
 const infos: ServiceInfos = {
   name: 'Metrique',
   to: ({ project }) => {
     return [
       {
-        to: `https://grafana.apps.c7.numerique-interieur.com/${project}-hors-prod`,
+        to: `https://${grafanaHost}/${project}-hors-prod`,
         title: 'Metrics hors Prod',
       },
       {
-        to: `https://grafana.apps.c7.numerique-interieur.com/${project}-prod`,
+        to: `https:///${grafanaHost}/${project}-prod`,
         title: 'Metrics Prod',
       },
     ]
