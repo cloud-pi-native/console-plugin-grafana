@@ -13,9 +13,9 @@ export const keycloakToken = process.env.KEYCLOAK_ADMIN_PASSWORD
 export const keycloakUser = process.env.KEYCLOAK_ADMIN
 export const kubeconfigPath = process.env.KUBECONFIG_PATH
 export const kubeconfigCtx = process.env.KUBECONFIG_CTX
-export const HTTP_PROXY = process.env.HTTP_PROXY
-export const HTTPS_PROXY = process.env.HTTPS_PROXY
-export const NO_PROXY = process.env.NO_PROXY
+export const HTTP_PROXY = process.env.METRICS_HTTP_PROXY
+export const HTTPS_PROXY = process.env.METRICS_HTTPS_PROXY
+export const NO_PROXY = process.env.METRICS_NO_PROXY
 
 
 export const getkcClient = async () => {
