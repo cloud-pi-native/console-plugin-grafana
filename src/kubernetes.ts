@@ -192,13 +192,11 @@ const getGrafanaAlertManagerDataSourceObject = (project, grafanaName, datasource
 export const createGrafanaInstance = async (instanceName: string, roleAttributePath: string) => {
   const customObjectsApi = await createCustomObjectsApi()
   try {
-    if (HTTP_PROXY && HTTPS_PROXY) {
-      const containersSpecArray = [
-        {
-          image: 'grafana/grafana:9.5.5',
-          name: 'grafana',
-        },
-        {
+    const containersSpecArray = [
+      {
+        image: 'grafana/grafana:9.5.5',
+        name: 'grafana',
+        ...(HTTPS_PROXY && HTTPS_PROXY) && {
           env: [
             {
               name: 'HTTP_PROXY',
@@ -213,18 +211,10 @@ export const createGrafanaInstance = async (instanceName: string, roleAttributeP
               value: `${NO_PROXY}`
             },
           ]
-        }]
-      const result = await customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanas', getGrafanaObject(instanceName, roleAttributePath, containersSpecArray))
-      console.debug(JSON.stringify(result.body))
-    } else {
-      const containersSpecArray = [
-        {
-          image: 'grafana/grafana:9.5.5',
-          name: 'grafana',
-        }]
-      const result = await customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanas', getGrafanaObject(instanceName, roleAttributePath, containersSpecArray))
-      console.debug(JSON.stringify(result.body))
-    }
+        }
+      }]
+    const result = await customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanas', getGrafanaObject(instanceName, roleAttributePath, containersSpecArray))
+    console.debug(JSON.stringify(result.body))
     console.log(`Grafana ${instanceName} created`)
   } catch {
     console.error('Something happend while creating grafana instance')
