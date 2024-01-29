@@ -1,7 +1,7 @@
 import { createCustomObjectsApi } from './k8sApi.js'
-import { grafanaHost, keycloakClientSecret, keycloakUrl, mimirUrl } from './utils.js'
+import { grafanaHost, keycloakClientSecret, keycloakUrl, mimirUrl, grafanaUrl, HTTP_PROXY, HTTPS_PROXY, NO_PROXY } from './utils.js'
 
-const getGrafanaObject = (instanceName: string, roleAttributePath) => {
+const getGrafanaObject = (instanceName: string, roleAttributePath, containersSpecArray) => {
   return {
     apiVersion: 'grafana.integreatly.org/v1beta1',
     kind: 'Grafana',
@@ -34,7 +34,7 @@ const getGrafanaObject = (instanceName: string, roleAttributePath) => {
           token_url: `${keycloakUrl.replace(/\/$/, '')}/realms/dso/protocol/openid-connect/token`,
         },
         server: {
-          root_url: `https://${grafanaHost}/${instanceName}/`,
+          root_url: `${grafanaUrl}/${instanceName}/`,
           serve_from_sub_path: 'true',
         },
       },
@@ -42,11 +42,7 @@ const getGrafanaObject = (instanceName: string, roleAttributePath) => {
         spec: {
           template: {
             spec: {
-              containers: [
-                {
-                  image: 'grafana/grafana:9.5.5',
-                  name: 'grafana',
-                }],
+              containers: containersSpecArray,
             },
           },
         },
@@ -102,7 +98,7 @@ export const getGrafanaPrometheusDataSourceObject = (project, grafanaName, datas
         },
         type: 'prometheus',
         uid: 'prometheus',
-        url: `https://${mimirUrl}/prometheus`,
+        url: `${mimirUrl}/prometheus`,
       },
       instanceSelector: {
         matchLabels: {
@@ -162,7 +158,7 @@ const getGrafanaAlertManagerDataSourceObject = (project, grafanaName, datasource
         },
         type: 'alertmanager',
         uid: 'alertmanager',
-        url: `https://${mimirUrl}`,
+        url: `${mimirUrl}`,
       },
       instanceSelector: {
         matchLabels: {
@@ -196,9 +192,40 @@ const getGrafanaAlertManagerDataSourceObject = (project, grafanaName, datasource
 export const createGrafanaInstance = async (instanceName: string, roleAttributePath: string) => {
   const customObjectsApi = await createCustomObjectsApi()
   try {
-    const result = await customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanas', getGrafanaObject(instanceName, roleAttributePath))
+    if (HTTP_PROXY && HTTPS_PROXY) {
+      const containersSpecArray = [
+        {
+          image: 'grafana/grafana:9.5.5',
+          name: 'grafana',
+        },
+        {
+          env: [
+            {
+              name: 'HTTP_PROXY',
+              value: `${HTTP_PROXY}`
+            },
+            {
+              name: 'HTTPS_PROXY',
+              value: `${HTTPS_PROXY}`
+            },
+            {
+              name: 'NO_PROXY',
+              value: `${NO_PROXY}`
+            },
+          ]
+        }]
+      const result = await customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanas', getGrafanaObject(instanceName, roleAttributePath, containersSpecArray))
+      console.debug(JSON.stringify(result.body))
+    } else {
+      const containersSpecArray = [
+        {
+          image: 'grafana/grafana:9.5.5',
+          name: 'grafana',
+        }]
+      const result = await customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanas', getGrafanaObject(instanceName, roleAttributePath, containersSpecArray))
+      console.debug(JSON.stringify(result.body))
+    }
     console.log(`Grafana ${instanceName} created`)
-    console.debug(JSON.stringify(result.body))
   } catch {
     console.error('Something happend while creating grafana instance')
   }

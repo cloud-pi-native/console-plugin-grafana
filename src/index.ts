@@ -18,7 +18,7 @@ export const initGrafanaInstance: StepCall<EnvironmentCreateArgs> = async (paylo
     const grafanaNameProd = `${project}-prod`
     const grafanaNameHorsProd = `${project}-hors-prod`
     const prodIsPresent = await containsProd(environments)
-    const projectName = `${organization}-${project}` // toto
+    const projectName = `${organization}-${project}`
     const horsProdIsPresent = await containsHorsProd(environments)
     await createKeycloakGroups(organization, project, owner)
     if (prodIsPresent) {

@@ -4,6 +4,7 @@ import GroupRepresentation from '@keycloak/keycloak-admin-client/lib/defs/groupR
 export const keycloakUrl = process.env.KEYCLOAK_URL
 export const keycloakClientSecret = process.env.KEYCLOAK_CLIENT_SECRET_GRAFANA
 export const grafanaHost = process.env.GRAFANA_HOST
+export const grafanaUrl = process.env.GRAFANA_URL
 export const mimirUrl = process.env.MIMIR_URL
 export const keycloakProtocol = process.env.KEYCLOAK_PROTOCOL
 export const keycloakDomain = process.env.KEYCLOAK_DOMAIN
@@ -12,6 +13,10 @@ export const keycloakToken = process.env.KEYCLOAK_ADMIN_PASSWORD
 export const keycloakUser = process.env.KEYCLOAK_ADMIN
 export const kubeconfigPath = process.env.KUBECONFIG_PATH
 export const kubeconfigCtx = process.env.KUBECONFIG_CTX
+export const HTTP_PROXY = process.env.HTTP_PROXY
+export const HTTPS_PROXY = process.env.HTTPS_PROXY
+export const NO_PROXY = process.env.NO_PROXY
+
 
 export const getkcClient = async () => {
   const kcClient = new KeycloakAdminClient({
