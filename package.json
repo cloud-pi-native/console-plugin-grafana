@@ -1,22 +1,41 @@
 {
-  "name": "metrics",
-  "version": "0.0.5",
-  "description": "Metrics plugin for DSO console",
+  "name": "@cpn-console/grafana-plugin",
+  "version": "0.1.0",
+  "description": "Grafana plugin for DSO console",
+  "type": "module",
   "main": "index.js",
+  "module": "./dist/index.js",
   "scripts": {
+    "build": "npm run clean:build && npm run compile",
+    "clean:build": "rm -rf ./dist ./types",
+    "compile": "tsc",
+    "format": "eslint ./src --ext .js,.cjs,.ts --fix",
+    "lint": "eslint ./src",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "rm -rf dist && tsc"
+    "prepare": "husky"
   },
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "@keycloak/keycloak-admin-client": "^22.0.5",
+    "@keycloak/keycloak-admin-client": "^23.0.7",
     "@kubernetes/client-node": "^0.20.0",
-    "axios": "^1.6.2",
-    "typescript-transform-paths": "^3.4.6"
+    "axios": "^1.6.7"
   },
   "devDependencies": {
-    "@dso-console/server": "^6.5.0",
-    "@types/node": "^20.9.4"
-  }
+    "@cpn-console/hooks": "^1.0.0",
+    "@cpn-console/shared": "^1.0.0",
+    "@cpn-console/eslint-config": "^1.0.0",
+    "@cpn-console/ts-config": "^1.0.0",
+    "@types/node": "^20.11.20",
+    "husky": "^9.0.11",
+    "typescript": "^5.3.3",
+    "typescript-transform-paths": "^3.4.7"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public",
+    "tag": "latest"
+  },
+  "files": [
+    "dist",
+    "types"
+  ]
 }

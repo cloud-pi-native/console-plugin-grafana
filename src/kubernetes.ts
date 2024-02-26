@@ -1,7 +1,9 @@
+import type { EnvironmentCreateArgs, EnvironmentDeleteArgs } from '@cpn-console/hooks'
 import { createCustomObjectsApi } from './k8sApi.js'
-import { grafanaHost, keycloakClientSecret, keycloakUrl, mimirUrl, grafanaUrl, HTTP_PROXY, HTTPS_PROXY, NO_PROXY } from './utils.js'
+import { getConfig } from './utils.js'
+import { error } from 'console'
 
-const getGrafanaObject = (instanceName: string, roleAttributePath, containersSpecArray) => {
+const getGrafanaObject = (instanceName: string, roleAttributePath: string, containersSpecArray: unknown[]) => {
   return {
     apiVersion: 'grafana.integreatly.org/v1beta1',
     kind: 'Grafana',
@@ -20,10 +22,10 @@ const getGrafanaObject = (instanceName: string, roleAttributePath, containersSpe
           oauth_allow_insecure_email_lookup: 'true',
         },
         'auth.generic_oauth': {
-          api_url: `${keycloakUrl.replace(/\/$/, '')}/realms/dso/protocol/openid-connect/userinfo`,
-          auth_url: `${keycloakUrl.replace(/\/$/, '')}/realms/dso/protocol/openid-connect/auth`,
+          api_url: `${getConfig().keycloakUrl?.replace(/\/$/, '')}/realms/${getConfig().keycloakRealm}/protocol/openid-connect/userinfo`,
+          auth_url: `${getConfig().keycloakUrl?.replace(/\/$/, '')}/realms/${getConfig().keycloakRealm}/protocol/openid-connect/auth`,
           client_id: 'grafana-projects',
-          client_secret: keycloakClientSecret,
+          client_secret: getConfig().keycloakClientSecret,
           email_attribute_path: 'email',
           groups_attribute_path: 'group',
           enabled: 'true',
@@ -31,10 +33,10 @@ const getGrafanaObject = (instanceName: string, roleAttributePath, containersSpe
           role_attribute_strict: 'true',
           scopes: 'profile, group, email, openid',
           tls_skip_verify_insecure: 'true',
-          token_url: `${keycloakUrl.replace(/\/$/, '')}/realms/dso/protocol/openid-connect/token`,
+          token_url: `${getConfig().keycloakUrl?.replace(/\/$/, '')}/realms/${getConfig().keycloakRealm}/protocol/openid-connect/token`,
         },
         server: {
-          root_url: `${grafanaUrl}/${instanceName}/`,
+          root_url: `${getConfig().grafanaUrl}/${instanceName}/`,
           serve_from_sub_path: 'true',
         },
       },
@@ -50,7 +52,7 @@ const getGrafanaObject = (instanceName: string, roleAttributePath, containersSpe
       route: {
         metadata: {},
         spec: {
-          host: `${grafanaHost}`,
+          host: `${getConfig().grafanaHost}`,
           path: `/${instanceName}`,
           port: {
             targetPort: 3000,
@@ -69,7 +71,12 @@ const getGrafanaObject = (instanceName: string, roleAttributePath, containersSpe
     },
   }
 }
-export const getGrafanaPrometheusDataSourceObject = (project, grafanaName, datasourceName, stage) => {
+export const getGrafanaPrometheusDataSourceObject = (
+  project: EnvironmentCreateArgs['project'],
+  grafanaName: string,
+  datasourceName: string,
+  stage: 'prod' | 'hprod',
+) => {
   return {
     apiVersion: 'grafana.integreatly.org/v1beta1',
     kind: 'GrafanaDatasource',
@@ -98,7 +105,7 @@ export const getGrafanaPrometheusDataSourceObject = (project, grafanaName, datas
         },
         type: 'prometheus',
         uid: 'prometheus',
-        url: `${mimirUrl}/prometheus`,
+        url: `${getConfig().mimirUrl}/prometheus`,
       },
       instanceSelector: {
         matchLabels: {
@@ -129,7 +136,12 @@ export const getGrafanaPrometheusDataSourceObject = (project, grafanaName, datas
   }
 }
 
-const getGrafanaAlertManagerDataSourceObject = (project, grafanaName, datasourceName, stage) => {
+const getGrafanaAlertManagerDataSourceObject = (
+  project: EnvironmentCreateArgs['project'],
+  grafanaName: string,
+  datasourceName: string,
+  stage: 'prod' | 'hprod',
+) => {
   return {
     apiVersion: 'grafana.integreatly.org/v1beta1',
     kind: 'GrafanaDatasource',
@@ -158,7 +170,7 @@ const getGrafanaAlertManagerDataSourceObject = (project, grafanaName, datasource
         },
         type: 'alertmanager',
         uid: 'alertmanager',
-        url: `${mimirUrl}`,
+        url: `${getConfig().mimirUrl}`,
       },
       instanceSelector: {
         matchLabels: {
@@ -196,22 +208,22 @@ export const createGrafanaInstance = async (instanceName: string, roleAttributeP
       {
         image: 'grafana/grafana:9.5.5',
         name: 'grafana',
-        ...(HTTPS_PROXY && HTTPS_PROXY) && {
+        ...(getConfig().HTTP_PROXY && getConfig().HTTPS_PROXY) && {
           env: [
             {
               name: 'HTTP_PROXY',
-              value: `${HTTP_PROXY}`
+              value: `${getConfig().HTTP_PROXY}`,
             },
             {
               name: 'HTTPS_PROXY',
-              value: `${HTTPS_PROXY}`
+              value: `${getConfig().HTTPS_PROXY}`,
             },
             {
               name: 'NO_PROXY',
-              value: `${NO_PROXY}`
+              value: `${getConfig().NO_PROXY}`,
             },
-          ]
-        }
+          ],
+        },
       }]
     const result = await customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanas', getGrafanaObject(instanceName, roleAttributePath, containersSpecArray))
     console.debug(JSON.stringify(result.body))
@@ -221,7 +233,12 @@ export const createGrafanaInstance = async (instanceName: string, roleAttributeP
   }
 }
 
-export const createDataSourcePrometheus = async (project, grafanaName, datasourceName, stage) => {
+export const createDataSourcePrometheus = async (
+  project: EnvironmentCreateArgs['project'],
+  grafanaName: string,
+  datasourceName: string,
+  stage: 'prod' | 'hprod',
+) => {
   const customObjectsApi = await createCustomObjectsApi()
   try {
     const result = await customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanadatasources', getGrafanaPrometheusDataSourceObject(project, grafanaName, datasourceName, stage))
@@ -233,7 +250,12 @@ export const createDataSourcePrometheus = async (project, grafanaName, datasourc
   }
 }
 
-export const createDataSourceAlertmanager = async (project, grafanaName, datasourceName, stage) => {
+export const createDataSourceAlertmanager = async (
+  project: EnvironmentCreateArgs['project'],
+  grafanaName: string,
+  datasourceName: string,
+  stage: 'prod' | 'hprod',
+) => {
   const customObjectsApi = await createCustomObjectsApi()
   try {
     const result = await customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanadatasources', getGrafanaAlertManagerDataSourceObject(project, grafanaName, datasourceName, stage))
@@ -244,18 +266,7 @@ export const createDataSourceAlertmanager = async (project, grafanaName, datasou
   }
 }
 
-export const updateDataSource = async (cluster, datasourceObject) => {
-  const customObjectsApi = await createCustomObjectsApi()
-  try {
-    const result = await customObjectsApi.replaceNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanadatasources', datasourceObject.metadata.name, datasourceObject)
-    console.log(`Grafana ${datasourceObject.metadata.name} updated`)
-    console.debug(JSON.stringify(result.body))
-  } catch {
-    console.error('Something happend while creating prometheus datasource')
-  }
-}
-
-export const grafanaExist = async (cluster, instanceName: string) => {
+export const grafanaExist = async (instanceName: string) => {
   const customObjectsApi = await createCustomObjectsApi()
   try {
     const result = await customObjectsApi.getNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanas', instanceName)
@@ -268,7 +279,7 @@ export const grafanaExist = async (cluster, instanceName: string) => {
   }
 }
 
-export const datasourceExist = async (cluster, datasource: string) => {
+export const datasourceExist = async (datasource: string) => {
   const customObjectsApi = await createCustomObjectsApi()
   try {
     const result = await customObjectsApi.getNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanadatasources', datasource)
@@ -281,19 +292,7 @@ export const datasourceExist = async (cluster, datasource: string) => {
   }
 }
 
-export const getExistingDatasourceObject = async (cluster, datasource: string) => {
-  const customObjectsApi = await createCustomObjectsApi()
-  try {
-    const result = await customObjectsApi.getNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanadatasources', datasource)
-    console.debug(JSON.stringify(result.body))
-    return result.body
-  } catch {
-    console.log(`Datasource ${datasource} instance not exist`)
-    return null
-  }
-}
-
-export const deleteGrafana = async (cluster, grafanaName) => {
+export const deleteGrafana = async (grafanaName: string) => {
   const customObjectsApi = await createCustomObjectsApi()
   try {
     const result = await customObjectsApi.deleteNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanas', grafanaName)
@@ -304,7 +303,7 @@ export const deleteGrafana = async (cluster, grafanaName) => {
   }
 }
 
-export const deleteDatasource = async (cluster, datasource: string) => {
+export const deleteDatasource = async (datasource: string) => {
   const customObjectsApi = await createCustomObjectsApi()
   try {
     const result = await customObjectsApi.deleteNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanadatasources', datasource)
@@ -315,71 +314,17 @@ export const deleteDatasource = async (cluster, datasource: string) => {
   }
 }
 
-export const containsProd = (environments): boolean => {
-  let tem = false
-  environments.forEach(env => {
-    if (env.stage === 'prod') {
-      tem = true
-    }
-  })
-  return tem
-}
+export const containsStage = (environments: EnvironmentCreateArgs['environments'], stage: 'prod' | 'hprod'): boolean | void => !environments ? error('Pas d\'environments spécifiés') : environments?.some(env => env.stage === stage)
 
-export const containsHorsProd = (environments): boolean => {
-  let tem = false
-  environments.forEach(env => {
-    if (env.stage !== 'prod') {
-      tem = true
-    }
-  })
-  return tem
-}
-
-const getHttpHeaderName1 = (grafanaDatasource) => {
-  return grafanaDatasource.spec.datasource.secureJsonData.httpHeaderValue1
-}
-
-export const getClustersHeader = (grafanaDatasource): Array<string> => {
-  const header = getHttpHeaderName1(grafanaDatasource)
-  console.log(JSON.stringify(header))
-  const tenants = header.split('|')
-  const clusters = []
-  tenants.forEach(tenant => {
-    const clusterName = tenant.split('-')[0]
-    clusters.push(clusterName)
-  })
-  return clusters
-}
-
-export const formatAddDataSourceHeader = (grafanaDatasource, newTenant): string => {
-  const existingHeader = getHttpHeaderName1(grafanaDatasource)
-  const formatHeader = `${existingHeader}|${newTenant}`
-  return formatHeader
-}
-
-export const formatRemoveDatasourceHeader = (grafanaDatasource, tenentToRemove): string => {
-  const existingHeader = getHttpHeaderName1(grafanaDatasource)
-  if (existingHeader !== tenentToRemove) {
-    return supprimerElement(existingHeader, tenentToRemove)
-  }
-  return ''
-}
-
-const supprimerElement = (chaineOriginale, elementASupprimer) => {
-  // Utilise une expression régulière pour trouver l'élément suivi de "|" ou se trouvant à la fin de la chaîne
-  const regex = new RegExp(elementASupprimer + '(\\||$)', 'g')
-  let resultat = chaineOriginale.replace(regex, '')
-
-  // Enlève le "|" restant à la fin si nécessaire
-  resultat = resultat.replace(/\|$/, '')
-
-  return resultat
-}
-
-export const handleInit = async (cluster, grafanaName, project, projectName, stage) => {
-  const grafanaCrdExist = await grafanaExist(cluster, grafanaName)
-  const datasourcePromExist = await datasourceExist(cluster, `datasource-prom-${grafanaName}`)
-  const datasourceAlertExist = await datasourceExist(cluster, `datasource-am-${grafanaName}`)
+export const handleInit = async (
+  grafanaName: string,
+  project: EnvironmentCreateArgs['project'],
+  projectName: string,
+  stage: 'prod' | 'hprod',
+) => {
+  const grafanaCrdExist = await grafanaExist(grafanaName)
+  const datasourcePromExist = await datasourceExist(`datasource-prom-${grafanaName}`)
+  const datasourceAlertExist = await datasourceExist(`datasource-am-${grafanaName}`)
   if (grafanaCrdExist === false) {
     console.log(`Create grafana instance: ${grafanaName}, for project: ${project}`)
     await createGrafanaInstance(grafanaName, `contains(groups[*], '/${projectName}/metrics/grafana-${stage}-edit') && 'Editor' || contains(groups[*], '/${projectName}/metrics/grafana-${stage}-view') && 'Viewer'`)
@@ -394,24 +339,20 @@ export const handleInit = async (cluster, grafanaName, project, projectName, sta
   }
 }
 
-export const handleDelete = async (cluster, project, stageStillPresent: boolean, grafanaName, newList, stage) => {
-  if (stageStillPresent === false) {
-    console.log(`Stage ${stage} not present, process program, if instance existe, delete instance`)
-    const grafanaCrdExist = await grafanaExist(cluster, grafanaName)
-    const datasourcePromExist = await datasourceExist(cluster, `datasource-prom-${grafanaName}`)
-    const datasourceAlertExist = await datasourceExist(cluster, `datasource-am-${grafanaName}`)
-    if (datasourcePromExist) await deleteDatasource(cluster, `datasource-prom-${grafanaName}`)
-    if (datasourceAlertExist) await deleteDatasource(cluster, `datasource-prom-${grafanaName}`)
-    if (grafanaCrdExist) await deleteGrafana(cluster, grafanaName)
+export const handleDelete = async (
+  stageStillPresent: boolean,
+  grafanaName: string,
+  stage: EnvironmentDeleteArgs['stage'],
+) => {
+  if (stageStillPresent) {
+    console.log('Stage still present')
+    return
   }
-}
-
-export const containsCluster = (clusterList, envList) => {
-  let containsTem = false
-  envList.forEach(env => {
-    if (clusterList.contains(env.clusterName)) {
-      containsTem = true
-    }
-  })
-  return containsTem
+  console.log(`Stage ${stage} not present, process program, if instance exist, delete instance`)
+  const grafanaCrdExist = await grafanaExist(grafanaName)
+  const datasourcePromExist = await datasourceExist(`datasource-prom-${grafanaName}`)
+  const datasourceAlertExist = await datasourceExist(`datasource-am-${grafanaName}`)
+  if (datasourcePromExist) await deleteDatasource(`datasource-prom-${grafanaName}`)
+  if (datasourceAlertExist) await deleteDatasource(`datasource-prom-${grafanaName}`)
+  if (grafanaCrdExist) await deleteGrafana(grafanaName)
 }
