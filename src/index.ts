@@ -1,7 +1,6 @@
 import { type Plugin } from '@cpn-console/hooks'
 import { initGrafanaInstance, deleteGrafanaInstance } from './functions.js'
 import infos from './infos.js'
-import monitor from './monitor.js'
 
 export const plugin: Plugin = {
   infos,
@@ -9,5 +8,4 @@ export const plugin: Plugin = {
     initializeEnvironment: { steps: { main: initGrafanaInstance } },
     deleteEnvironment: { steps: { main: deleteGrafanaInstance } },
   },
-  monitor,
 }

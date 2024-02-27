@@ -6,11 +6,11 @@ const infos: ServiceInfos = {
   to: ({ project }) => [
     {
       to: `https://${getConfig().grafanaHost}/${project}-hors-prod`,
-      title: 'Metrics hors Prod',
+      title: 'Grafana hors prod',
     },
     {
       to: `https:///${getConfig().grafanaHost}/${project}-prod`,
-      title: 'Metrics Prod',
+      title: 'Grafana de prod',
     },
   ],
   title: 'Grafana',

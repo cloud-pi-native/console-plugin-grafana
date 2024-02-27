@@ -9,6 +9,7 @@
     "build": "npm run clean:build && npm run compile",
     "clean:build": "rm -rf ./dist ./types",
     "compile": "tsc",
+    "dev": "nodemon --watch src --ext .ts --exec 'npm run build'",
     "format": "eslint ./src --ext .js,.cjs,.ts --fix",
     "lint": "eslint ./src",
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -26,6 +27,7 @@
     "@cpn-console/ts-config": "^1.0.0",
     "@types/node": "^20.11.20",
     "husky": "^9.0.11",
+    "nodemon": "^3.1.0",
     "typescript": "^5.3.3",
     "typescript-transform-paths": "^3.4.7"
   },

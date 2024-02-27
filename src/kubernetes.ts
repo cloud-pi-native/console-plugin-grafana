@@ -1,7 +1,6 @@
 import type { EnvironmentCreateArgs, EnvironmentDeleteArgs } from '@cpn-console/hooks'
 import { createCustomObjectsApi } from './k8sApi.js'
 import { getConfig } from './utils.js'
-import { error } from 'console'
 
 const getGrafanaObject = (instanceName: string, roleAttributePath: string, containersSpecArray: unknown[]) => {
   return {
@@ -314,7 +313,13 @@ export const deleteDatasource = async (datasource: string) => {
   }
 }
 
-export const containsStage = (environments: EnvironmentCreateArgs['environments'], stage: 'prod' | 'hprod'): boolean | void => !environments ? error('Pas d\'environments spécifiés') : environments?.some(env => env.stage === stage)
+export const containsProd = (environments: EnvironmentCreateArgs['environments']): boolean => {
+  return !!environments && environments.some(env => env.stage === 'prod')
+}
+
+export const containsHorsProd = (environments: EnvironmentCreateArgs['environments']): boolean => {
+  return !!environments && environments.some(env => env.stage !== 'prod')
+}
 
 export const handleInit = async (
   grafanaName: string,
