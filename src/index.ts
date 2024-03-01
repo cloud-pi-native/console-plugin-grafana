@@ -1,5 +1,5 @@
 import { type Plugin } from '@cpn-console/hooks'
-import { initGrafanaInstance, deleteGrafanaInstance } from './functions.js'
+import { initGrafanaInstance, deleteGrafanaInstance, updatePermission } from './functions.js'
 import infos from './infos.js'
 
 export const plugin: Plugin = {
@@ -7,5 +7,6 @@ export const plugin: Plugin = {
   subscribedHooks: {
     initializeEnvironment: { steps: { main: initGrafanaInstance } },
     deleteEnvironment: { steps: { main: deleteGrafanaInstance } },
+    setEnvPermission: { steps: { main: updatePermission } },
   },
 }

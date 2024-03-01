@@ -1,24 +1,29 @@
-import type { EnvironmentCreateArgs, EnvironmentDeleteArgs, StepCall } from '@cpn-console/hooks'
-import { containsProd, containsHorsProd, handleDelete, handleInit } from './kubernetes.js'
-import { createKeycloakGroups } from './utils.js'
+import type { EnvironmentCreateArgs, EnvironmentDeleteArgs, PermissionManageUserArgs, StepCall } from '@cpn-console/hooks'
+import { handleDelete, handleInit } from './kubernetes.js'
+import { createKeycloakGroups, manageKeycloakPermission } from './keycloak.js'
+import { containsProd, containsHorsProd } from './utils.js'
 
 export const initGrafanaInstance: StepCall<EnvironmentCreateArgs> = async (payload) => {
   try {
     const { organization, project, environments, owner } = payload.args
-    console.log(`Metrics plugin initialized for project: ${project}`)
+    const projectName = `${organization}-${project}`
+
+    console.log(`Grafana plugin initialized for project: ${project}`)
+
+    await createKeycloakGroups(projectName, owner)
+
     const grafanaNameProd = `${project}-prod`
     const grafanaNameHorsProd = `${project}-hors-prod`
     const isProd = containsProd(environments)
-    const projectName = `${organization}-${project}`
     const isNotProd = containsHorsProd(environments)
-    await createKeycloakGroups(organization, project, owner)
     if (isProd) {
       await handleInit(grafanaNameProd, project, projectName, 'prod')
     }
     if (isNotProd) {
       await handleInit(grafanaNameHorsProd, project, projectName, 'hprod')
     }
-    console.log(`Metrics plugin initialized SUCCESS for project: ${project}`)
+
+    console.log(`Grafana plugin successfully initialized for project: ${project}`)
     return {
       status: {
         result: 'OK',
@@ -26,11 +31,10 @@ export const initGrafanaInstance: StepCall<EnvironmentCreateArgs> = async (paylo
       },
     }
   } catch (error) {
-    console.error(error)
     return {
       status: {
         result: 'OK',
-        message: 'Something happend while creating gafana instance',
+        message: 'An error happend while creating Grafana instance',
       },
       error: JSON.stringify(error),
     }
@@ -38,11 +42,11 @@ export const initGrafanaInstance: StepCall<EnvironmentCreateArgs> = async (paylo
 }
 
 export const deleteGrafanaInstance: StepCall<EnvironmentDeleteArgs> = async (payload) => {
-  const { project, environments, stage } = payload.args
-  const grafanaNameProd = `${project}-prod`
-  const grafanaNameHorsProd = `${project}-hors-prod`
-
   try {
+    const { project, environments, stage } = payload.args
+    const grafanaNameProd = `${project}-prod`
+    const grafanaNameHorsProd = `${project}-hors-prod`
+
     if (stage === 'prod') {
       const isProd = containsProd(environments)
       await handleDelete(isProd, grafanaNameProd, 'prod')
@@ -50,13 +54,45 @@ export const deleteGrafanaInstance: StepCall<EnvironmentDeleteArgs> = async (pay
       const isNotProd = containsHorsProd(environments)
       await handleDelete(isNotProd, grafanaNameHorsProd, 'hprod')
     }
-  } catch (e) {
-    console.error(e)
+
+    return {
+      status: {
+        result: 'OK',
+        message: 'Deleted',
+      },
+    }
+  } catch (error) {
+    return {
+      status: {
+        result: 'OK',
+        message: 'An error happend while deleting Grafana instance',
+      },
+      error: JSON.stringify(error),
+    }
   }
-  return {
-    status: {
-      result: 'OK',
-      message: 'OK',
-    },
+}
+
+export const updatePermission: StepCall<PermissionManageUserArgs> = async (payload) => {
+  try {
+    // TODO : stage nécessaire (prod / hprod)
+    const { organization, project, user, permissions, stage } = payload.args
+    const projectName = `${organization}-${project}`
+
+    await manageKeycloakPermission(projectName, user, permissions, stage)
+
+    return {
+      status: {
+        result: 'OK',
+        message: `Permission added to user ${user.id} on '${projectName}'`,
+      },
+    }
+  } catch (error) {
+    return {
+      status: {
+        result: 'OK',
+        message: 'An error happend while adding user permission on Grafana instance',
+      },
+      error: JSON.stringify(error),
+    }
   }
 }

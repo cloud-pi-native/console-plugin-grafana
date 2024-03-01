@@ -70,6 +70,7 @@ const getGrafanaObject = (instanceName: string, roleAttributePath: string, conta
     },
   }
 }
+
 export const getGrafanaPrometheusDataSourceObject = (
   project: EnvironmentCreateArgs['project'],
   grafanaName: string,
@@ -311,14 +312,6 @@ export const deleteDatasource = async (datasource: string) => {
   } catch (e) {
     console.log(e)
   }
-}
-
-export const containsProd = (environments: EnvironmentCreateArgs['environments']): boolean => {
-  return !!environments && environments.some(env => env.stage === 'prod')
-}
-
-export const containsHorsProd = (environments: EnvironmentCreateArgs['environments']): boolean => {
-  return !!environments && environments.some(env => env.stage !== 'prod')
 }
 
 export const handleInit = async (
