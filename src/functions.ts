@@ -1,6 +1,6 @@
 import type { EnvironmentCreateArgs, EnvironmentDeleteArgs, PermissionManageUserArgs, StepCall } from '@cpn-console/hooks'
 import { handleDelete, handleInit } from './kubernetes.js'
-import { createKeycloakGroups, manageKeycloakPermission } from './keycloak.js'
+import { createKeycloakGroups, deleteKeycloakGroups, manageKeycloakPermission } from './keycloak.js'
 import { containsProd, containsHorsProd } from './utils.js'
 
 export const initGrafanaInstance: StepCall<EnvironmentCreateArgs> = async (payload) => {
@@ -43,16 +43,26 @@ export const initGrafanaInstance: StepCall<EnvironmentCreateArgs> = async (paylo
 
 export const deleteGrafanaInstance: StepCall<EnvironmentDeleteArgs> = async (payload) => {
   try {
-    const { project, environments, stage } = payload.args
+    const { organization, project, environments, stage } = payload.args
+    const projectName = `${organization}-${project}`
     const grafanaNameProd = `${project}-prod`
     const grafanaNameHorsProd = `${project}-hors-prod`
 
+    // Two grafana instances : one for prod and one for not-prod
     if (stage === 'prod') {
-      const isProd = containsProd(environments)
-      await handleDelete(isProd, grafanaNameProd, 'prod')
+      const isRemainingProdEnv = containsProd(environments)
+      // Delete prod grafana instance and kc groups only if no remaining prod environments
+      if (!isRemainingProdEnv) {
+        await handleDelete(grafanaNameProd, 'prod')
+        await deleteKeycloakGroups(projectName, stage)
+      }
     } else {
-      const isNotProd = containsHorsProd(environments)
-      await handleDelete(isNotProd, grafanaNameHorsProd, 'hprod')
+      const isRemainingHProdEnv = containsHorsProd(environments)
+      // Delete hprod grafana instance and kc groups only if no remaining hprod environments
+      if (!isRemainingHProdEnv) {
+        await handleDelete(grafanaNameHorsProd, 'hprod')
+        await deleteKeycloakGroups(projectName, stage)
+      }
     }
 
     return {
@@ -74,7 +84,6 @@ export const deleteGrafanaInstance: StepCall<EnvironmentDeleteArgs> = async (pay
 
 export const updatePermission: StepCall<PermissionManageUserArgs> = async (payload) => {
   try {
-    // TODO : stage nécessaire (prod / hprod)
     const { organization, project, user, permissions, stage } = payload.args
     const projectName = `${organization}-${project}`
 

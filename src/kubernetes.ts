@@ -325,7 +325,7 @@ export const handleInit = async (
   const datasourceAlertExist = await datasourceExist(`datasource-am-${grafanaName}`)
   if (grafanaCrdExist === false) {
     console.log(`Create grafana instance: ${grafanaName}, for project: ${project}`)
-    await createGrafanaInstance(grafanaName, `contains(groups[*], '/${projectName}/metrics/grafana-${stage}-edit') && 'Editor' || contains(groups[*], '/${projectName}/metrics/grafana-${stage}-view') && 'Viewer'`)
+    await createGrafanaInstance(grafanaName, `contains(groups[*], '/${projectName}/grafana/${stage}-rw') && 'Editor' || contains(groups[*], '/${projectName}/grafana/${stage}-ro') && 'Viewer'`)
   }
   if (datasourcePromExist === false) {
     console.log(`Create datasource ${stage} prometheus instance for project: ${project}`)
@@ -338,14 +338,9 @@ export const handleInit = async (
 }
 
 export const handleDelete = async (
-  stageStillPresent: boolean,
   grafanaName: string,
   stage: EnvironmentDeleteArgs['stage'],
 ) => {
-  if (stageStillPresent) {
-    console.log('Stage still present')
-    return
-  }
   console.log(`Stage ${stage} not present, process program, if instance exist, delete instance`)
   const grafanaCrdExist = await grafanaExist(grafanaName)
   const datasourcePromExist = await datasourceExist(`datasource-prom-${grafanaName}`)

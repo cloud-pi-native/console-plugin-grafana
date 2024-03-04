@@ -21,11 +21,11 @@
     "axios": "^1.6.7"
   },
   "devDependencies": {
-    "@cpn-console/hooks": "^1.0.0",
+    "@cpn-console/hooks": "^1.1.0",
     "@cpn-console/shared": "^1.0.0",
     "@cpn-console/eslint-config": "^1.0.0",
     "@cpn-console/ts-config": "^1.0.0",
-    "@types/node": "^20.11.20",
+    "@types/node": "^20.11.24",
     "husky": "^9.0.11",
     "nodemon": "^3.1.0",
     "typescript": "^5.3.3",

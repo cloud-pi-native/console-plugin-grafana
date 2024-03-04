@@ -56,6 +56,17 @@ export const getOrCreateChildGroup = async (kcClient: KeycloakAdminClient, paren
   }
 }
 
+export const getSubGroup = async (kcClient: KeycloakAdminClient, projectId: string, subGroupName: string): Promise<GroupRepresentation> => {
+  const projectGroup = await kcClient.groups.findOne({ id: projectId })
+  if (!projectGroup) throw new Error('The project group does not exist')
+  const grafanaGroup = projectGroup.subGroups?.find(subGroup => subGroup.name === 'grafana')
+  if (!grafanaGroup) throw new Error('The grafana project group does not exist')
+  if (!grafanaGroup.subGroups?.length) throw new Error('The grana project group does not have subGroups')
+  const subGroup = grafanaGroup.subGroups.find(subGroup => subGroup.name === subGroupName)
+  if (!subGroup) throw new Error(`No subGroup matching ${subGroupName} found`)
+  return subGroup
+}
+
 export const manageKeycloakPermission = async (
   projectName: string,
   user: PermissionManageUserArgs['user'],
@@ -71,32 +82,35 @@ export const manageKeycloakPermission = async (
     const grafanaGroup = await getOrCreateChildGroup(kcClient, projectGroup.id, 'grafana')
     if (!grafanaGroup?.id) throw Error(`Unable to find grafana group for '/${projectGroup.name}'`)
 
-    const roGroupProd = await getOrCreateChildGroup(kcClient, grafanaGroup.id, 'prod-RO')
-    const rwGroupProd = await getOrCreateChildGroup(kcClient, grafanaGroup.id, 'prod-RW')
-    const roGroupHorsProd = await getOrCreateChildGroup(kcClient, grafanaGroup.id, 'hprod-RO')
-    const rwGroupHorsProd = await getOrCreateChildGroup(kcClient, grafanaGroup.id, 'hprod-RW')
-
     if (stage === 'prod') {
+      const rwGroupProd = await getOrCreateChildGroup(kcClient, grafanaGroup.id, 'prod-RW')
+      const roGroupProd = await getOrCreateChildGroup(kcClient, grafanaGroup.id, 'prod-RO')
       if (permissions.rw) {
         await kcClient.users.addToGroup({ id: user.id, groupId: rwGroupProd.id })
       } else {
-        await kcClient.users.delFromGroup({ id: user.id, groupId: rwGroupProd.id })
+        // await kcClient.users.delFromGroup({ id: user.id, groupId: rwGroupProd.id })
+        console.log('user should be removed from group prod-RW')
       }
       if (permissions.ro) {
         await kcClient.users.addToGroup({ id: user.id, groupId: roGroupProd.id })
       } else {
-        await kcClient.users.delFromGroup({ id: user.id, groupId: roGroupProd.id })
+        // await kcClient.users.delFromGroup({ id: user.id, groupId: roGroupProd.id })
+        console.log('user should be removed from group prod-RO')
       }
     } else {
+      const roGroupHorsProd = await getOrCreateChildGroup(kcClient, grafanaGroup.id, 'hprod-RO')
+      const rwGroupHorsProd = await getOrCreateChildGroup(kcClient, grafanaGroup.id, 'hprod-RW')
       if (permissions.rw) {
         await kcClient.users.addToGroup({ id: user.id, groupId: rwGroupHorsProd.id })
       } else {
-        await kcClient.users.delFromGroup({ id: user.id, groupId: rwGroupHorsProd.id })
+        // await kcClient.users.delFromGroup({ id: user.id, groupId: rwGroupHorsProd.id })
+        console.log('user should be removed from group hprod-RW')
       }
       if (permissions.ro) {
         await kcClient.users.addToGroup({ id: user.id, groupId: roGroupHorsProd.id })
       } else {
-        await kcClient.users.delFromGroup({ id: user.id, groupId: roGroupHorsProd.id })
+        // await kcClient.users.delFromGroup({ id: user.id, groupId: roGroupHorsProd.id })
+        console.log('user should be removed from group hprod-RO')
       }
     }
 
@@ -137,4 +151,35 @@ export const createKeycloakGroups = async (
   await kcClient.users.addToGroup({ id: owner.id, groupId: rwGroupProd.id })
   await kcClient.users.addToGroup({ id: owner.id, groupId: roGroupHorsProd.id })
   await kcClient.users.addToGroup({ id: owner.id, groupId: rwGroupHorsProd.id })
+}
+
+export const deleteKeycloakGroups = async (
+  projectName: string,
+  stage: string,
+) => {
+  const kcClient = await getkcClient()
+
+  const projectGroup = await getProjectGroupByName(kcClient, projectName)
+  if (!projectGroup?.id) throw Error(`Unable to find parent group for ${projectName}`)
+
+  const subGroup = await getOrCreateChildGroup(kcClient, projectGroup.id, 'grafana')
+  if (!subGroup?.id) throw Error(`Unable to find grafana subGroup of '/${projectGroup.name}'`)
+
+  if (stage === 'prod') {
+    const roGroupProd = await getSubGroup(kcClient, projectGroup.id, 'prod-RO')
+    if (!roGroupProd?.id) throw new Error('No prod-R0 subGroup found')
+    kcClient.groups.del({ id: roGroupProd.id })
+
+    const rwGroupProd = await getSubGroup(kcClient, projectGroup.id, 'prod-RW')
+    if (!rwGroupProd?.id) throw new Error('No prod-RW subGroup found')
+    kcClient.groups.del({ id: rwGroupProd.id })
+  } else {
+    const roGroupHProd = await getSubGroup(kcClient, projectGroup.id, 'hprod-RO')
+    if (!roGroupHProd?.id) throw new Error('No hprod-R0 subGroup found')
+    kcClient.groups.del({ id: roGroupHProd.id })
+
+    const rwGroupHProd = await getSubGroup(kcClient, projectGroup.id, 'hprod-RW')
+    if (!rwGroupHProd?.id) throw new Error('No hprod-RW subGroup found')
+    kcClient.groups.del({ id: roGroupHProd.id })
+  }
 }
