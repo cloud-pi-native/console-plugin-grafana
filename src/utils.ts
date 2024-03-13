@@ -1,4 +1,4 @@
-import { EnvironmentCreateArgs } from '@cpn-console/hooks'
+import type { EnvironmentCreateArgs } from '@cpn-console/hooks'
 import { requiredEnv } from '@cpn-console/shared'
 
 export const removeTrailingSlash = (url: string | undefined) => url?.endsWith('/')
