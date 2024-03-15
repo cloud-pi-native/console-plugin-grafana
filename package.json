@@ -1,6 +1,6 @@
 {
   "name": "@cpn-console/grafana-plugin",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "description": "Grafana plugin for DSO console",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,7 +22,6 @@
   },
   "devDependencies": {
     "@cpn-console/hooks": "^1.1.0",
-    "@cpn-console/shared": "^1.0.0",
     "@cpn-console/eslint-config": "^1.0.0",
     "@cpn-console/ts-config": "^1.1.0",
     "@types/node": "^20.11.24",

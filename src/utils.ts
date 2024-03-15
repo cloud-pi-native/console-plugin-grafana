@@ -1,5 +1,4 @@
 import type { EnvironmentCreateArgs } from '@cpn-console/hooks'
-import { requiredEnv } from '@cpn-console/shared'
 
 export const removeTrailingSlash = (url: string | undefined) => url?.endsWith('/')
   ? url?.slice(0, -1)
@@ -40,18 +39,18 @@ const config: {
 }
 
 export const getConfig = (): Required<typeof config> => {
-  config.grafanaHost = config.grafanaHost ?? requiredEnv('GRAFANA_HOST')
-  config.grafanaUrl = config.grafanaUrl ?? requiredEnv('GRAFANA_URL')
-  config.mimirUrl = config.mimirUrl ?? requiredEnv('MIMIR_URL')
-  config.kubeconfigPath = config.kubeconfigPath ?? requiredEnv('KUBECONFIG_PATH')
-  config.kubeconfigCtx = config.kubeconfigCtx ?? requiredEnv('KUBECONFIG_CTX')
-  config.keycloakUrl = removeTrailingSlash(requiredEnv('KEYCLOAK_URL'))
-  config.keycloakClientSecret = config.keycloakClientSecret ?? requiredEnv('KEYCLOAK_CLIENT_SECRET_GRAFANA')
-  config.keycloakProtocol = config.keycloakProtocol ?? requiredEnv('KEYCLOAK_PROTOCOL')
-  config.keycloakDomain = config.keycloakDomain ?? requiredEnv('KEYCLOAK_DOMAIN')
-  config.keycloakRealm = config.keycloakRealm ?? requiredEnv('KEYCLOAK_REALM')
-  config.keycloakToken = config.keycloakToken ?? requiredEnv('KEYCLOAK_ADMIN_PASSWORD')
-  config.keycloakUser = config.keycloakUser ?? requiredEnv('KEYCLOAK_ADMIN')
+  config.grafanaHost = config.grafanaHost ?? process.env.GRAFANA_HOST
+  config.grafanaUrl = config.grafanaUrl ?? process.env.GRAFANA_URL
+  config.mimirUrl = config.mimirUrl ?? process.env.MIMIR_URL
+  config.kubeconfigPath = config.kubeconfigPath ?? process.env.KUBECONFIG_PATH
+  config.kubeconfigCtx = config.kubeconfigCtx ?? process.env.KUBECONFIG_CTX
+  config.keycloakUrl = removeTrailingSlash(process.env.KEYCLOAK_URL)
+  config.keycloakClientSecret = config.keycloakClientSecret ?? process.env.KEYCLOAK_CLIENT_SECRET_GRAFANA
+  config.keycloakProtocol = config.keycloakProtocol ?? process.env.KEYCLOAK_PROTOCOL
+  config.keycloakDomain = config.keycloakDomain ?? process.env.KEYCLOAK_DOMAIN
+  config.keycloakRealm = config.keycloakRealm ?? process.env.KEYCLOAK_REALM
+  config.keycloakToken = config.keycloakToken ?? process.env.KEYCLOAK_ADMIN_PASSWORD
+  config.keycloakUser = config.keycloakUser ?? process.env.KEYCLOAK_ADMIN
   config.HTTP_PROXY = config.HTTP_PROXY ?? process.env.HTTP_PROXY
   config.HTTPS_PROXY = config.HTTPS_PROXY ?? process.env.HTTPS_PROXY
   config.NO_PROXY = config.NO_PROXY ?? process.env.NO_PROXY
