@@ -3,13 +3,13 @@ import { getConfig } from './utils.js'
 
 const infos: ServiceInfos = {
   name: 'grafana',
-  to: ({ project }) => [
+  to: ({ project, organization }) => [
     {
-      to: `https://${getConfig().grafanaHost}/${project}-hors-prod`,
+      to: `https://${getConfig().grafanaHost}/${organization}-${project}-hprod`,
       title: 'Grafana hors prod',
     },
     {
-      to: `https:///${getConfig().grafanaHost}/${project}-prod`,
+      to: `https:///${getConfig().grafanaHost}/${organization}-${project}-prod`,
       title: 'Grafana de prod',
     },
   ],

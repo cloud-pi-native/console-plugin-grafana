@@ -1,12 +1,10 @@
-import type { EnvironmentCreateArgs } from '@cpn-console/hooks'
-
-export const removeTrailingSlash = (url: string | undefined) => url?.endsWith('/')
-  ? url?.slice(0, -1)
-  : url
+import { removeTrailingSlash, requiredEnv } from '@cpn-console/shared'
+import { CoreV1Api, CustomObjectsApi, KubeConfig } from '@kubernetes/client-node'
 
 const config: {
   grafanaHost?: string
   grafanaUrl?: string
+  grafanaNamespace?: string
   mimirUrl?: string
   kubeconfigPath?: string
   kubeconfigCtx?: string
@@ -23,6 +21,7 @@ const config: {
 } = {
   grafanaHost: undefined,
   grafanaUrl: undefined,
+  grafanaNamespace: undefined,
   mimirUrl: undefined,
   kubeconfigPath: undefined,
   kubeconfigCtx: undefined,
@@ -41,10 +40,11 @@ const config: {
 export const getConfig = (): Required<typeof config> => {
   config.grafanaHost = config.grafanaHost ?? process.env.GRAFANA_HOST
   config.grafanaUrl = config.grafanaUrl ?? process.env.GRAFANA_URL
+  config.grafanaNamespace = config.grafanaNamespace ?? process.env.GRAFANA_NAMESPACE
   config.mimirUrl = config.mimirUrl ?? process.env.MIMIR_URL
   config.kubeconfigPath = config.kubeconfigPath ?? process.env.KUBECONFIG_PATH
   config.kubeconfigCtx = config.kubeconfigCtx ?? process.env.KUBECONFIG_CTX
-  config.keycloakUrl = removeTrailingSlash(process.env.KEYCLOAK_URL)
+  config.keycloakUrl = removeTrailingSlash(requiredEnv('KEYCLOAK_URL'))
   config.keycloakClientSecret = config.keycloakClientSecret ?? process.env.KEYCLOAK_CLIENT_SECRET_GRAFANA
   config.keycloakProtocol = config.keycloakProtocol ?? process.env.KEYCLOAK_PROTOCOL
   config.keycloakDomain = config.keycloakDomain ?? process.env.KEYCLOAK_DOMAIN
@@ -59,10 +59,39 @@ export const getConfig = (): Required<typeof config> => {
   return config
 }
 
-export const containsProd = (environments: EnvironmentCreateArgs['environments']): boolean => {
-  return !!environments && environments.some(env => env.stage === 'prod')
+const getClient = () => {
+  const kubeconfigCtx = process.env.KUBECONFIG_CTX
+  const kubeconfigPath = process.env.KUBECONFIG_PATH
+  const kc = new KubeConfig()
+  if (kubeconfigPath) {
+    kc.loadFromFile(kubeconfigPath)
+    if (kubeconfigCtx) {
+      kc.setCurrentContext(kubeconfigCtx)
+    }
+    return kc
+  } else {
+    kc.loadFromCluster()
+  }
+  return kc
 }
 
-export const containsHorsProd = (environments: EnvironmentCreateArgs['environments']): boolean => {
-  return !!environments && environments.some(env => env.stage !== 'prod')
+let k8sApi: CoreV1Api | undefined
+let customK8sApi: CustomObjectsApi | undefined
+
+export const getK8sApi = (): CoreV1Api => {
+  k8sApi = k8sApi ?? getClient().makeApiClient(CoreV1Api)
+  return k8sApi
+}
+
+export const getCustomK8sApi = (): CustomObjectsApi => {
+  customK8sApi = customK8sApi ?? getClient().makeApiClient(CustomObjectsApi)
+  return customK8sApi
+}
+
+export type Stage = 'prod' | 'hprod'
+
+export type BaseParams = {
+  organizationName: string
+  projectName: string
+  stage: Stage
 }

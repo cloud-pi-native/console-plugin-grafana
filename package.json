@@ -1,6 +1,6 @@
 {
   "name": "@cpn-console/grafana-plugin",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "description": "Grafana plugin for DSO console",
   "type": "module",
   "main": "./dist/index.js",
@@ -16,12 +16,14 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "@cpn-console/hooks": "^2.0.1",
+    "@cpn-console/shared": "^1.0.1",
     "@keycloak/keycloak-admin-client": "^23.0.7",
     "@kubernetes/client-node": "^0.20.0",
     "axios": "^1.6.7"
   },
   "devDependencies": {
-    "@cpn-console/hooks": "^1.1.0",
+    "@cpn-console/keycloak-plugin": "^2.0.1",
     "@cpn-console/eslint-config": "^1.0.0",
     "@cpn-console/ts-config": "^1.1.0",
     "@types/node": "^20.11.24",

@@ -1,28 +1,43 @@
-import type { EnvironmentCreateArgs, EnvironmentDeleteArgs } from '@cpn-console/hooks'
-import { createCustomObjectsApi } from './k8sApi.js'
-import { getConfig } from './utils.js'
+import { KeycloakProjectApi } from '@cpn-console/keycloak-plugin/types/class.js'
+import { BaseParams, Stage, getConfig, getCustomK8sApi } from './utils.js'
+import { PatchUtils } from '@kubernetes/client-node'
 
-const getGrafanaObject = (instanceName: string, roleAttributePath: string, containersSpecArray: unknown[]) => {
-  return {
-    apiVersion: 'grafana.integreatly.org/v1beta1',
-    kind: 'Grafana',
-    metadata: {
-      labels: {
-        app: `${instanceName}`,
-        dashboards: 'default',
-        'app.kubernetes.io/managed-by': 'dso-console',
-      },
-      name: `${instanceName}`,
-      namespace: 'infra-grafana',
+const patchOptions = { headers: { 'Content-type': PatchUtils.PATCH_FORMAT_JSON_MERGE_PATCH } }
+
+const computeGrafanaName = (params: BaseParams) => `${params.organizationName}-${params.projectName}-${params.stage}`
+const getProjectSelector = (p: BaseParams) => [`dso/grafana-stage=${p.stage}`, `dso/organization=${p.organizationName}`, `dso/project=${p.projectName}`, 'app.kubernetes.io/managed-by=dso-console']
+
+// #region GrafanaInstance
+const getGrafanaInstanceSpec = (parentGrafanaName: string, roleAttributePath: string) => {
+  const containersSpecArray = [{
+    image: 'grafana/grafana:9.5.5',
+    name: 'grafana',
+    ...(getConfig().HTTP_PROXY && getConfig().HTTPS_PROXY) && {
+      env: [
+        {
+          name: 'HTTP_PROXY',
+          value: `${getConfig().HTTP_PROXY}`,
+        },
+        {
+          name: 'HTTPS_PROXY',
+          value: `${getConfig().HTTPS_PROXY}`,
+        },
+        {
+          name: 'NO_PROXY',
+          value: `${getConfig().NO_PROXY}`,
+        },
+      ],
     },
+  }]
+  return {
     spec: {
       config: {
         auth: {
           oauth_allow_insecure_email_lookup: 'true',
         },
         'auth.generic_oauth': {
-          api_url: `${getConfig().keycloakUrl?.replace(/\/$/, '')}/realms/${getConfig().keycloakRealm}/protocol/openid-connect/userinfo`,
-          auth_url: `${getConfig().keycloakUrl?.replace(/\/$/, '')}/realms/${getConfig().keycloakRealm}/protocol/openid-connect/auth`,
+          api_url: `${getConfig().keycloakUrl}/realms/${getConfig().keycloakRealm}/protocol/openid-connect/userinfo`,
+          auth_url: `${getConfig().keycloakUrl}/realms/${getConfig().keycloakRealm}/protocol/openid-connect/auth`,
           client_id: 'grafana-projects',
           client_secret: getConfig().keycloakClientSecret,
           email_attribute_path: 'email',
@@ -32,10 +47,10 @@ const getGrafanaObject = (instanceName: string, roleAttributePath: string, conta
           role_attribute_strict: 'true',
           scopes: 'profile, group, email, openid',
           tls_skip_verify_insecure: 'true',
-          token_url: `${getConfig().keycloakUrl?.replace(/\/$/, '')}/realms/${getConfig().keycloakRealm}/protocol/openid-connect/token`,
+          token_url: `${getConfig().keycloakUrl}/realms/${getConfig().keycloakRealm}/protocol/openid-connect/token`,
         },
         server: {
-          root_url: `${getConfig().grafanaUrl}/${instanceName}/`,
+          root_url: `${getConfig().grafanaUrl}/${parentGrafanaName}/`,
           serve_from_sub_path: 'true',
         },
       },
@@ -52,7 +67,7 @@ const getGrafanaObject = (instanceName: string, roleAttributePath: string, conta
         metadata: {},
         spec: {
           host: `${getConfig().grafanaHost}`,
-          path: `/${instanceName}`,
+          path: `/${parentGrafanaName}`,
           port: {
             targetPort: 3000,
           },
@@ -61,7 +76,7 @@ const getGrafanaObject = (instanceName: string, roleAttributePath: string, conta
           },
           to: {
             kind: 'Service',
-            name: `${instanceName}-service`,
+            name: `${parentGrafanaName}-service`,
             weight: 100,
           },
           wildcardPolicy: 'None',
@@ -71,281 +86,271 @@ const getGrafanaObject = (instanceName: string, roleAttributePath: string, conta
   }
 }
 
-export const getGrafanaPrometheusDataSourceObject = (
-  project: EnvironmentCreateArgs['project'],
-  grafanaName: string,
+const getGrafanaInstanceObject = (params: BaseParams, roleAttributePath: string) => {
+  const grafanaName = computeGrafanaName(params)
+  return {
+    apiVersion: 'grafana.integreatly.org/v1beta1',
+    kind: 'Grafana',
+    metadata: {
+      labels: {
+        app: grafanaName,
+        dashboards: 'default',
+        'app.kubernetes.io/managed-by': 'dso-console',
+        'dso/organization': params.organizationName,
+        'dso/project': params.projectName,
+        'dso/grafana-stage': params.stage,
+      },
+      name: grafanaName,
+      namespace: getConfig().grafanaNamespace,
+    },
+    ...getGrafanaInstanceSpec(grafanaName, roleAttributePath),
+  }
+}
+// #endregion
+
+// #region Prometheus
+const getGrafanaPrometheusSpec = (parentGrafanaName: string) => ({
+  spec: {
+    datasource: {
+      access: 'proxy',
+      basicAuth: true,
+      // eslint-disable-next-line no-template-curly-in-string
+      basicAuthUser: '${PROMETHEUS_USERNAME}',
+      isDefault: true,
+      jsonData: {
+        httpHeaderName1: 'X-Scope-OrgID',
+      },
+      name: 'Prometheus',
+      secureJsonData: {
+        // eslint-disable-next-line no-template-curly-in-string
+        basicAuthPassword: '${PROMETHEUS_PASSWORD}',
+        httpHeaderValue1: parentGrafanaName,
+      },
+      type: 'prometheus',
+      uid: 'prometheus',
+      url: `${getConfig().mimirUrl}/prometheus`,
+    },
+    instanceSelector: {
+      matchLabels: {
+        app: parentGrafanaName,
+      },
+    },
+    valuesFrom: [
+      {
+        targetPath: 'basicAuthUser',
+        valueFrom: {
+          secretKeyRef: {
+            key: 'PROMETHEUS_USERNAME',
+            name: 'credentials',
+          },
+        },
+      },
+      {
+        targetPath: 'secureJsonData.basicAuthPassword',
+        valueFrom: {
+          secretKeyRef: {
+            key: 'PROMETHEUS_PASSWORD',
+            name: 'credentials',
+          },
+        },
+      },
+    ],
+  },
+})
+
+const getGrafanaPrometheusDataSourceObject = (
+  params: BaseParams,
   datasourceName: string,
-  stage: 'prod' | 'hprod',
 ) => {
+  const parentGrafanaName = computeGrafanaName(params)
   return {
     apiVersion: 'grafana.integreatly.org/v1beta1',
     kind: 'GrafanaDatasource',
     metadata: {
-      name: `${datasourceName}`,
-      namespace: 'infra-grafana',
+      name: datasourceName,
+      namespace: getConfig().grafanaNamespace,
       labels: {
         'app.kubernetes.io/managed-by': 'dso-console',
+        'dso/organization': params.organizationName,
+        'dso/project': params.projectName,
+        'dso/grafana-stage': params.stage,
+        'dso/grafana-source': 'prometheus',
       },
     },
-    spec: {
-      datasource: {
-        access: 'proxy',
-        basicAuth: true,
-        // eslint-disable-next-line no-template-curly-in-string
-        basicAuthUser: '${PROMETHEUS_USERNAME}',
-        isDefault: true,
-        jsonData: {
-          httpHeaderName1: 'X-Scope-OrgID',
-        },
-        name: 'Prometheus',
-        secureJsonData: {
-          // eslint-disable-next-line no-template-curly-in-string
-          basicAuthPassword: '${PROMETHEUS_PASSWORD}',
-          httpHeaderValue1: `${stage}-${project}`,
-        },
-        type: 'prometheus',
-        uid: 'prometheus',
-        url: `${getConfig().mimirUrl}/prometheus`,
-      },
-      instanceSelector: {
-        matchLabels: {
-          app: `${grafanaName}`,
-        },
-      },
-      valuesFrom: [
-        {
-          targetPath: 'basicAuthUser',
-          valueFrom: {
-            secretKeyRef: {
-              key: 'PROMETHEUS_USERNAME',
-              name: 'credentials',
-            },
-          },
-        },
-        {
-          targetPath: 'secureJsonData.basicAuthPassword',
-          valueFrom: {
-            secretKeyRef: {
-              key: 'PROMETHEUS_PASSWORD',
-              name: 'credentials',
-            },
-          },
-        },
-      ],
-    },
+    ...getGrafanaPrometheusSpec(parentGrafanaName),
   }
 }
+// #endregion
+
+// #region AlertManager
+const getGrafanaAlertManagerSpec = (parentGrafanaName: string) => ({
+  spec: {
+    datasource: {
+      access: 'proxy',
+      basicAuth: true,
+      // eslint-disable-next-line no-template-curly-in-string
+      basicAuthUser: '${PROMETHEUS_USERNAME}',
+      isDefault: false,
+      jsonData: {
+        httpHeaderName1: 'X-Scope-OrgID',
+      },
+      name: 'Alertmanager',
+      secureJsonData: {
+        // eslint-disable-next-line no-template-curly-in-string
+        basicAuthPassword: '${PROMETHEUS_PASSWORD}',
+        httpHeaderValue1: parentGrafanaName, // TODO voir avec Ronan
+      },
+      type: 'alertmanager',
+      uid: 'alertmanager',
+      url: getConfig().mimirUrl,
+    },
+    instanceSelector: {
+      matchLabels: {
+        app: parentGrafanaName,
+      },
+    },
+    valuesFrom: [
+      {
+        targetPath: 'basicAuthUser',
+        valueFrom: {
+          secretKeyRef: {
+            key: 'PROMETHEUS_USERNAME',
+            name: 'credentials',
+          },
+        },
+      },
+      {
+        targetPath: 'secureJsonData.basicAuthPassword',
+        valueFrom: {
+          secretKeyRef: {
+            key: 'PROMETHEUS_PASSWORD',
+            name: 'credentials',
+          },
+        },
+      },
+    ],
+  },
+})
 
 const getGrafanaAlertManagerDataSourceObject = (
-  project: EnvironmentCreateArgs['project'],
-  grafanaName: string,
+  params: BaseParams,
   datasourceName: string,
-  stage: 'prod' | 'hprod',
 ) => {
+  const parentGrafanaName = computeGrafanaName(params)
   return {
     apiVersion: 'grafana.integreatly.org/v1beta1',
     kind: 'GrafanaDatasource',
     metadata: {
-      name: `${datasourceName}`,
-      namespace: 'infra-grafana',
+      name: datasourceName,
+      namespace: getConfig().grafanaNamespace,
       labels: {
         'app.kubernetes.io/managed-by': 'dso-console',
+        'dso/organization': params.organizationName,
+        'dso/project': params.projectName,
+        'dso/grafana-stage': params.stage,
+        'dso/grafana-source': 'alert-manager',
       },
     },
-    spec: {
-      datasource: {
-        access: 'proxy',
-        basicAuth: true,
-        // eslint-disable-next-line no-template-curly-in-string
-        basicAuthUser: '${PROMETHEUS_USERNAME}',
-        isDefault: false,
-        jsonData: {
-          httpHeaderName1: 'X-Scope-OrgID',
-        },
-        name: 'Alertmanager',
-        secureJsonData: {
-          // eslint-disable-next-line no-template-curly-in-string
-          basicAuthPassword: '${PROMETHEUS_PASSWORD}',
-          httpHeaderValue1: `${stage}-${project}`,
-        },
-        type: 'alertmanager',
-        uid: 'alertmanager',
-        url: `${getConfig().mimirUrl}`,
-      },
-      instanceSelector: {
-        matchLabels: {
-          app: `${grafanaName}`,
-        },
-      },
-      valuesFrom: [
-        {
-          targetPath: 'basicAuthUser',
-          valueFrom: {
-            secretKeyRef: {
-              key: 'PROMETHEUS_USERNAME',
-              name: 'credentials',
-            },
-          },
-        },
-        {
-          targetPath: 'secureJsonData.basicAuthPassword',
-          valueFrom: {
-            secretKeyRef: {
-              key: 'PROMETHEUS_PASSWORD',
-              name: 'credentials',
-            },
-          },
-        },
-      ],
-    },
+    ...getGrafanaAlertManagerSpec(parentGrafanaName),
   }
+}
+// #endregion
+
+// #region DataSources manipulation
+const datasourcesFn = {
+  prometheus: {
+    specFn: getGrafanaPrometheusSpec,
+    objectFn: getGrafanaPrometheusDataSourceObject,
+  },
+  'alert-manager': {
+    specFn: getGrafanaAlertManagerSpec,
+    objectFn: getGrafanaAlertManagerDataSourceObject,
+  },
 }
 
-export const createGrafanaInstance = async (instanceName: string, roleAttributePath: string) => {
-  const customObjectsApi = await createCustomObjectsApi()
-  try {
-    const containersSpecArray = [
-      {
-        image: 'grafana/grafana:9.5.5',
-        name: 'grafana',
-        ...(getConfig().HTTP_PROXY && getConfig().HTTPS_PROXY) && {
-          env: [
-            {
-              name: 'HTTP_PROXY',
-              value: `${getConfig().HTTP_PROXY}`,
-            },
-            {
-              name: 'HTTPS_PROXY',
-              value: `${getConfig().HTTPS_PROXY}`,
-            },
-            {
-              name: 'NO_PROXY',
-              value: `${getConfig().NO_PROXY}`,
-            },
-          ],
-        },
-      }]
-    const result = await customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanas', getGrafanaObject(instanceName, roleAttributePath, containersSpecArray))
-    console.debug(JSON.stringify(result.body))
-    console.log(`Grafana ${instanceName} created`)
-  } catch {
-    console.error('Something happend while creating grafana instance')
+export const ensureDataSource = async (params: BaseParams, key: keyof typeof datasourcesFn) => {
+  const customObjectsApi = getCustomK8sApi()
+  const selectors = [...getProjectSelector(params), `dso/grafana-source=${key}`].join(',')
+  const dataSources = await customObjectsApi.listNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', getConfig().grafanaNamespace, 'grafanadatasources', undefined, undefined, undefined, undefined, selectors) as { body: {items: { metadata: { name: string } }[] } }
+  const grafanaName = computeGrafanaName(params)
+  // @ts-ignore
+  if (dataSources.body.items.length > 1) {
+    await Promise.all(
+      dataSources.body.items.map(item => customObjectsApi.deleteNamespacedCustomObject(
+        'grafana.integreatly.org',
+        'v1beta1',
+        getConfig().grafanaNamespace,
+        'grafanadatasources',
+        item.metadata.name,
+      )),
+    )
+    // @ts-ignore
+  } else if (dataSources.body.items.length === 1) {
+    const dataSource = dataSources.body.items[0]
+    const spec = datasourcesFn[key].specFn(grafanaName)
+    return customObjectsApi.patchNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', getConfig().grafanaNamespace, 'grafanadatasources', dataSource.metadata.name, spec, undefined, undefined, undefined, patchOptions)
   }
+  const resourceName = `${grafanaName}-${key}`
+  const object = datasourcesFn[key].objectFn(params, resourceName)
+  return customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', getConfig().grafanaNamespace, 'grafanadatasources', object)
 }
 
-export const createDataSourcePrometheus = async (
-  project: EnvironmentCreateArgs['project'],
-  grafanaName: string,
-  datasourceName: string,
-  stage: 'prod' | 'hprod',
-) => {
-  const customObjectsApi = await createCustomObjectsApi()
-  try {
-    const result = await customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanadatasources', getGrafanaPrometheusDataSourceObject(project, grafanaName, datasourceName, stage))
-    console.log(`Grafana ${datasourceName} created`)
-    console.debug(JSON.stringify(result.body))
-  } catch (e) {
-    console.error(e)
-    console.error('Something happend while creating prometheus datasource')
+export const deleteAllDataSources = async (params: BaseParams) => {
+  const customObjectsApi = getCustomK8sApi()
+  const selectors = [...getProjectSelector(params), 'dso/grafana-source'].join(',')
+  const dataSources = await customObjectsApi.listNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', getConfig().grafanaNamespace, 'grafanadatasources', undefined, undefined, undefined, undefined, selectors) as { body: {items: { metadata: { name: string } }[] } }
+  return Promise.all(
+    dataSources.body.items.map(item => customObjectsApi.deleteNamespacedCustomObject(
+      'grafana.integreatly.org',
+      'v1beta1',
+      getConfig().grafanaNamespace,
+      'grafanadatasources',
+      item.metadata.name,
+    )),
+  )
+}
+// #endregion
+
+// #region Instance manipulation
+const getRoleAttributePath = (keycloakRootGroup: string, stage: Stage) => `contains(groups[*], '${keycloakRootGroup}/grafana/${stage}-RW') && 'Editor' || contains(groups[*], '/${keycloakRootGroup}/grafana/${stage}-RO') && 'Viewer'`
+
+export const ensureGrafanaInstance = async (params: BaseParams, keycloakApi: KeycloakProjectApi) => {
+  const customObjectsApi = getCustomK8sApi()
+  const keycloakRootGroupPath = await keycloakApi.getProjectGroupPath()
+  const roleAttributePath = getRoleAttributePath(keycloakRootGroupPath, params.stage)
+  const selectors = getProjectSelector(params).join(',')
+  const { body: { items } } = await customObjectsApi.listNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', getConfig().grafanaNamespace, 'grafanas', undefined, undefined, undefined, undefined, selectors) as { body: {items: { metadata: { name: string } }[] } }
+  const grafanaName = computeGrafanaName(params)
+
+  if (items.length > 1 || (items.length === 1 && items[0]?.metadata.name !== grafanaName)) {
+    await Promise.all(
+      items.map(item => customObjectsApi.deleteNamespacedCustomObject(
+        'grafana.integreatly.org',
+        'v1beta1',
+        getConfig().grafanaNamespace,
+        'grafanas',
+        item.metadata.name,
+      )),
+    )
+  } else if (items.length === 1) {
+    const spec = getGrafanaInstanceSpec(grafanaName, roleAttributePath)
+    return customObjectsApi.patchNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', getConfig().grafanaNamespace, 'grafanas', grafanaName, spec, undefined, undefined, undefined, patchOptions)
   }
+  return customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', getConfig().grafanaNamespace, 'grafanas', getGrafanaInstanceObject(params, roleAttributePath))
 }
 
-export const createDataSourceAlertmanager = async (
-  project: EnvironmentCreateArgs['project'],
-  grafanaName: string,
-  datasourceName: string,
-  stage: 'prod' | 'hprod',
-) => {
-  const customObjectsApi = await createCustomObjectsApi()
-  try {
-    const result = await customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanadatasources', getGrafanaAlertManagerDataSourceObject(project, grafanaName, datasourceName, stage))
-    console.log(`Grafana ${datasourceName} created`)
-    console.debug(JSON.stringify(result.body))
-  } catch {
-    console.error('Something happend while creating prometheus datasource')
-  }
+export const deleteGrafanaInstance = async (params: BaseParams) => {
+  const customObjectsApi = getCustomK8sApi()
+  const selectors = getProjectSelector(params).join(',')
+  const dataSources = await customObjectsApi.listNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', getConfig().grafanaNamespace, 'grafanas', undefined, undefined, undefined, undefined, selectors) as { body: {items: { metadata: { name: string } }[] } }
+  return Promise.all(
+    dataSources.body.items.map(item => customObjectsApi.deleteNamespacedCustomObject(
+      'grafana.integreatly.org',
+      'v1beta1',
+      getConfig().grafanaNamespace,
+      'grafanas',
+      item.metadata.name,
+    )),
+  )
 }
-
-export const grafanaExist = async (instanceName: string) => {
-  const customObjectsApi = await createCustomObjectsApi()
-  try {
-    const result = await customObjectsApi.getNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanas', instanceName)
-    console.log(`Grafana ${instanceName} already exists`)
-    console.debug(JSON.stringify(result.body))
-    return true
-  } catch {
-    console.log('Grafana instance not exist')
-    return false
-  }
-}
-
-export const datasourceExist = async (datasource: string) => {
-  const customObjectsApi = await createCustomObjectsApi()
-  try {
-    const result = await customObjectsApi.getNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanadatasources', datasource)
-    console.log(`Datasource ${datasource} already exists`)
-    console.debug(JSON.stringify(result.body))
-    return true
-  } catch {
-    console.log(`Datasource ${datasource} instance not exist`)
-    return false
-  }
-}
-
-export const deleteGrafana = async (grafanaName: string) => {
-  const customObjectsApi = await createCustomObjectsApi()
-  try {
-    const result = await customObjectsApi.deleteNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanas', grafanaName)
-    console.log(`instance ${grafanaName} deleted`)
-    console.debug(JSON.stringify(result.body))
-  } catch (e) {
-    console.log(e)
-  }
-}
-
-export const deleteDatasource = async (datasource: string) => {
-  const customObjectsApi = await createCustomObjectsApi()
-  try {
-    const result = await customObjectsApi.deleteNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', 'infra-grafana', 'grafanadatasources', datasource)
-    console.log(`datasource: ${datasource} deleted`)
-    console.debug(JSON.stringify(result.body))
-  } catch (e) {
-    console.log(e)
-  }
-}
-
-export const handleInit = async (
-  grafanaName: string,
-  project: EnvironmentCreateArgs['project'],
-  projectName: string,
-  stage: 'prod' | 'hprod',
-) => {
-  const grafanaCrdExist = await grafanaExist(grafanaName)
-  const datasourcePromExist = await datasourceExist(`datasource-prom-${grafanaName}`)
-  const datasourceAlertExist = await datasourceExist(`datasource-am-${grafanaName}`)
-  if (grafanaCrdExist === false) {
-    console.log(`Create grafana instance: ${grafanaName}, for project: ${project}`)
-    await createGrafanaInstance(grafanaName, `contains(groups[*], '/${projectName}/grafana/${stage}-rw') && 'Editor' || contains(groups[*], '/${projectName}/grafana/${stage}-ro') && 'Viewer'`)
-  }
-  if (datasourcePromExist === false) {
-    console.log(`Create datasource ${stage} prometheus instance for project: ${project}`)
-    await createDataSourcePrometheus(project, `${grafanaName}`, `datasource-prom-${grafanaName}`, `${stage}`)
-  }
-  if (datasourceAlertExist === false) {
-    console.log(`Create datasource ${stage} alertmanager instance for project: ${project}`)
-    await createDataSourceAlertmanager(project, `${grafanaName}`, `datasource-am-${grafanaName}`, `${stage}`)
-  }
-}
-
-export const handleDelete = async (
-  grafanaName: string,
-  stage: EnvironmentDeleteArgs['stage'],
-) => {
-  console.log(`Stage ${stage} not present, process program, if instance exist, delete instance`)
-  const grafanaCrdExist = await grafanaExist(grafanaName)
-  const datasourcePromExist = await datasourceExist(`datasource-prom-${grafanaName}`)
-  const datasourceAlertExist = await datasourceExist(`datasource-am-${grafanaName}`)
-  if (datasourcePromExist) await deleteDatasource(`datasource-prom-${grafanaName}`)
-  if (datasourceAlertExist) await deleteDatasource(`datasource-prom-${grafanaName}`)
-  if (grafanaCrdExist) await deleteGrafana(grafanaName)
-}
+// #endregion
