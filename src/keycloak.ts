@@ -1,8 +1,10 @@
 import type KeycloakAdminClient from '@keycloak/keycloak-admin-client'
 import type GroupRepresentation from '@keycloak/keycloak-admin-client/lib/defs/groupRepresentation.js'
-import type { PermissionManageUserArgs, EnvironmentCreateArgs } from '@cpn-console/hooks'
 import KcAdminClient from '@keycloak/keycloak-admin-client'
 import { getConfig } from './utils.js'
+import { KeycloakProjectApi } from '@cpn-console/keycloak-plugin/types/class.js'
+import { ListPerms } from './functions.js'
+import UserRepresentation from '@keycloak/keycloak-admin-client/lib/defs/userRepresentation.js'
 
 export const getkcClient = async () => {
   const kcClient = new KcAdminClient({
@@ -19,167 +21,122 @@ export const getkcClient = async () => {
   return kcClient
 }
 
-export const getProjectGroupByName = async (kcClient: KeycloakAdminClient, name: string): Promise<GroupRepresentation | void> => {
-  const groupSearch = await kcClient.groups.find({ search: name })
-  return groupSearch.find(grp => grp.name === name)
+const getRootGroupProject = async (keycloakApi: KeycloakProjectApi): Promise<Required<GroupRepresentation> | undefined> => {
+  const kcClient = await getkcClient()
+  const rootGroupPath = await keycloakApi.getProjectGroupPath()
+  const groups = await kcClient.groups.find({ search: rootGroupPath.slice(1), exact: true })
+  return groups.find(g => g.path === rootGroupPath) as Required<GroupRepresentation> | undefined
 }
 
-export const getOrCreateChildGroup = async (kcClient: KeycloakAdminClient, parentId: string, name: string, subGroups: GroupRepresentation[] | undefined = []): Promise<Required<Pick<GroupRepresentation, 'id' | 'name' | 'subGroups' | 'subGroupCount'>>> => {
-  if (Array.isArray(subGroups) && subGroups.length > 0) {
-    const matchingGroup = subGroups.find(({ name: groupName }) => groupName === name) as Required<GroupRepresentation> | undefined
-    if (matchingGroup) {
-      return {
-        id: matchingGroup.id,
-        subGroups: matchingGroup.subGroups || [],
-        subGroupCount: matchingGroup.subGroups?.length || 0,
-        name,
-      }
-    }
-  }
+export const ensureKeycloakGroups = async (listPerms: ListPerms, keycloakApi: KeycloakProjectApi) => {
+  const kcClient = await getkcClient()
+  const rootGroup = await getRootGroupProject(keycloakApi)
+  const rootGroupPath = await keycloakApi.getProjectGroupPath()
+  if (!rootGroup) throw new Error(`Unable to find root keycloak group ${rootGroupPath}`)
 
-  const existingGroup = await kcClient.groups.findOne({ id: parentId })
-  const matchingGroup = existingGroup?.subGroups?.find(({ name: groupName }) => groupName === name) as Required<GroupRepresentation> | undefined
-  if (!matchingGroup) {
-    const newGroup = await kcClient.groups.createChildGroup({ id: parentId }, { name })
+  const subgroupsMetrics = await findOrCreateMetricGroupAndSubGroups(rootGroup.id)
+  const promises: Promise<any>[] = []
+
+  // à ajouter
+  listPerms['hors-prod'].edit.forEach(userId => {
+    if (subgroupsMetrics['hprod-RW'].members.find(member => member.id === userId)) return
+    promises.push(kcClient.users.addToGroup({ groupId: subgroupsMetrics['hprod-RW'].id, id: userId }))
+  })
+  listPerms['hors-prod'].view.forEach(userId => {
+    if (subgroupsMetrics['hprod-RO'].members.find(member => member.id === userId)) return
+    promises.push(kcClient.users.addToGroup({ groupId: subgroupsMetrics['hprod-RO'].id, id: userId }))
+  })
+  listPerms.prod.edit.forEach(userId => {
+    if (subgroupsMetrics['prod-RW'].members.find(member => member.id === userId)) return
+    promises.push(kcClient.users.addToGroup({ groupId: subgroupsMetrics['prod-RW'].id, id: userId }))
+  })
+  listPerms.prod.view.forEach(userId => {
+    if (subgroupsMetrics['prod-RO'].members.find(member => member.id === userId)) return
+    promises.push(kcClient.users.addToGroup({ groupId: subgroupsMetrics['prod-RO'].id, id: userId }))
+  })
+
+  // à retirer
+  subgroupsMetrics['hprod-RW'].members.forEach(member => {
+    if (listPerms['hors-prod'].edit.includes(member.id)) return
+    promises.push(kcClient.users.delFromGroup({ id: member.id, groupId: subgroupsMetrics['hprod-RW'].id }))
+  })
+  subgroupsMetrics['hprod-RO'].members.forEach(member => {
+    if (listPerms['hors-prod'].view.includes(member.id)) return
+    promises.push(kcClient.users.delFromGroup({ id: member.id, groupId: subgroupsMetrics['hprod-RO'].id }))
+  })
+  subgroupsMetrics['prod-RW'].members.forEach(member => {
+    if (listPerms.prod.edit.includes(member.id)) return
+    promises.push(kcClient.users.delFromGroup({ id: member.id, groupId: subgroupsMetrics['prod-RW'].id }))
+  })
+  subgroupsMetrics['prod-RO'].members.forEach(member => {
+    if (listPerms.prod.view.includes(member.id)) return
+    promises.push(kcClient.users.delFromGroup({ id: member.id, groupId: subgroupsMetrics['prod-RO'].id }))
+  })
+
+  return Promise.all(promises)
+}
+
+type GroupDetails = Required<GroupRepresentation> & { members: Required<UserRepresentation>[] }
+
+type SubgroupsMetrics = {
+  'hprod-RW': GroupDetails
+  'hprod-RO': GroupDetails
+  'prod-RW': GroupDetails
+  'prod-RO': GroupDetails
+}
+
+const findMetricsGroup = async (kcClient: KeycloakAdminClient, parentId: string) => {
+  const groups = await kcClient.groups.listSubGroups({ parentId })
+  return groups.find(g => g.name === 'grafana') as Required<GroupRepresentation> | undefined
+}
+
+const findOrCreateMetricGroupAndSubGroups = async (parentId: string): Promise<SubgroupsMetrics> => {
+  const kcClient = await getkcClient()
+  const testMetricsGroup = await findMetricsGroup(kcClient, parentId)
+  if (!testMetricsGroup) {
+    const metricsGroup = await kcClient.groups.createChildGroup({ id: parentId }, { name: 'grafana' })
     return {
-      id: newGroup.id,
-      subGroups: [],
-      subGroupCount: 0,
-      name,
+      'hprod-RW': await createKeycloakGrafanaSubGroup('hprod-RW', metricsGroup.id, kcClient),
+      'hprod-RO': await createKeycloakGrafanaSubGroup('hprod-RO', metricsGroup.id, kcClient),
+      'prod-RW': await createKeycloakGrafanaSubGroup('prod-RW', metricsGroup.id, kcClient),
+      'prod-RO': await createKeycloakGrafanaSubGroup('prod-RO', metricsGroup.id, kcClient),
     }
   }
+  const metricsSubGroups = await kcClient.groups.listSubGroups({ parentId: testMetricsGroup.id }) as Required<GroupRepresentation>[]
+  const grafanaHorsProdEdit = metricsSubGroups.find(g => g.name === 'hprod-RW')
+  const grafanaHorsProdView = metricsSubGroups.find(g => g.name === 'hprod-RO')
+  const grafanaProdEdit = metricsSubGroups.find(g => g.name === 'prod-RW')
+  const grafanaProdView = metricsSubGroups.find(g => g.name === 'prod-RO')
   return {
-    id: matchingGroup.id,
-    subGroups: matchingGroup.subGroups || [],
-    subGroupCount: matchingGroup.subGroups?.length || 0,
-    name,
+    'hprod-RW': grafanaHorsProdEdit
+      ? await findDetails(grafanaHorsProdEdit, kcClient)
+      : await createKeycloakGrafanaSubGroup('hprod-RW', testMetricsGroup.id, kcClient),
+    'hprod-RO': grafanaHorsProdView
+      ? await findDetails(grafanaHorsProdView, kcClient)
+      : await createKeycloakGrafanaSubGroup('hprod-RO', testMetricsGroup.id, kcClient),
+    'prod-RW': grafanaProdEdit
+      ? await findDetails(grafanaProdEdit, kcClient)
+      : await createKeycloakGrafanaSubGroup('prod-RW', testMetricsGroup.id, kcClient),
+    'prod-RO': grafanaProdView
+      ? await findDetails(grafanaProdView, kcClient)
+      : await createKeycloakGrafanaSubGroup('prod-RO', testMetricsGroup.id, kcClient),
   }
 }
 
-export const getSubGroup = async (kcClient: KeycloakAdminClient, projectId: string, subGroupName: string): Promise<GroupRepresentation> => {
-  const projectGroup = await kcClient.groups.findOne({ id: projectId })
-  if (!projectGroup) throw new Error('The project group does not exist')
-  const grafanaGroup = projectGroup.subGroups?.find(subGroup => subGroup.name === 'grafana')
-  if (!grafanaGroup) throw new Error('The grafana project group does not exist')
-  if (!grafanaGroup.subGroups?.length) throw new Error('The grana project group does not have subGroups')
-  const subGroup = grafanaGroup.subGroups.find(subGroup => subGroup.name === subGroupName)
-  if (!subGroup) throw new Error(`No subGroup matching ${subGroupName} found`)
-  return subGroup
-}
+const createKeycloakGrafanaSubGroup = async (name: string, parentId: string, kcClient: KeycloakAdminClient): Promise<GroupDetails> => ({
+  ...(await kcClient.groups.createChildGroup({ id: parentId }, { name })) as Required<GroupRepresentation>,
+  members: [],
+})
 
-export const manageKeycloakPermission = async (
-  projectName: string,
-  user: PermissionManageUserArgs['user'],
-  permissions: PermissionManageUserArgs['permissions'],
-  stage: PermissionManageUserArgs['stage'],
-) => {
-  try {
-    const kcClient = await getkcClient()
+const findDetails = async (group: Required<GroupRepresentation>, kcClient: KeycloakAdminClient): Promise<GroupDetails> => ({
+  ...group,
+  members: await kcClient.groups.listMembers({ id: group.id }) as Required<UserRepresentation>[],
+})
 
-    const projectGroup = await getProjectGroupByName(kcClient, projectName)
-    if (!projectGroup?.id) throw Error(`Unable to find parent group for ${projectName}`)
-
-    const grafanaGroup = await getOrCreateChildGroup(kcClient, projectGroup.id, 'grafana')
-    if (!grafanaGroup?.id) throw Error(`Unable to find grafana group for '/${projectGroup.name}'`)
-
-    if (stage === 'prod') {
-      const rwGroupProd = await getOrCreateChildGroup(kcClient, grafanaGroup.id, 'prod-RW')
-      const roGroupProd = await getOrCreateChildGroup(kcClient, grafanaGroup.id, 'prod-RO')
-      if (permissions.rw) {
-        await kcClient.users.addToGroup({ id: user.id, groupId: rwGroupProd.id })
-      } else {
-        // await kcClient.users.delFromGroup({ id: user.id, groupId: rwGroupProd.id })
-        console.log('user should be removed from group prod-RW')
-      }
-      if (permissions.ro) {
-        await kcClient.users.addToGroup({ id: user.id, groupId: roGroupProd.id })
-      } else {
-        // await kcClient.users.delFromGroup({ id: user.id, groupId: roGroupProd.id })
-        console.log('user should be removed from group prod-RO')
-      }
-    } else {
-      const roGroupHorsProd = await getOrCreateChildGroup(kcClient, grafanaGroup.id, 'hprod-RO')
-      const rwGroupHorsProd = await getOrCreateChildGroup(kcClient, grafanaGroup.id, 'hprod-RW')
-      if (permissions.rw) {
-        await kcClient.users.addToGroup({ id: user.id, groupId: rwGroupHorsProd.id })
-      } else {
-        // await kcClient.users.delFromGroup({ id: user.id, groupId: rwGroupHorsProd.id })
-        console.log('user should be removed from group hprod-RW')
-      }
-      if (permissions.ro) {
-        await kcClient.users.addToGroup({ id: user.id, groupId: roGroupHorsProd.id })
-      } else {
-        // await kcClient.users.delFromGroup({ id: user.id, groupId: roGroupHorsProd.id })
-        console.log('user should be removed from group hprod-RO')
-      }
-    }
-
-    return {
-      status: {
-        result: 'OK',
-      },
-    }
-  } catch (error) {
-    return {
-      status: {
-        result: 'KO',
-        message: 'Failed',
-      },
-      error: JSON.stringify(error),
-    }
-  }
-}
-
-export const createKeycloakGroups = async (
-  projectName: string,
-  owner: EnvironmentCreateArgs['owner'],
-) => {
+export const deleteKeycloakGroup = async (keycloakApi: KeycloakProjectApi) => {
   const kcClient = await getkcClient()
-
-  const projectGroup = await getProjectGroupByName(kcClient, projectName)
-  if (!projectGroup?.id) throw Error(`Unable to find parent group for ${projectName}`)
-
-  const subGroup = await getOrCreateChildGroup(kcClient, projectGroup.id, 'grafana')
-  if (!subGroup?.id) throw Error(`Unable to find grafana subGroup of '/${projectGroup.name}'`)
-
-  const roGroupProd = await kcClient.groups.createChildGroup({ id: subGroup.id }, { name: 'prod-RO' })
-  const rwGroupProd = await kcClient.groups.createChildGroup({ id: subGroup.id }, { name: 'prod-RW' })
-  const roGroupHorsProd = await kcClient.groups.createChildGroup({ id: subGroup.id }, { name: 'hprod-RO' })
-  const rwGroupHorsProd = await kcClient.groups.createChildGroup({ id: subGroup.id }, { name: 'hprod-RW' })
-
-  await kcClient.users.addToGroup({ id: owner.id, groupId: roGroupProd.id })
-  await kcClient.users.addToGroup({ id: owner.id, groupId: rwGroupProd.id })
-  await kcClient.users.addToGroup({ id: owner.id, groupId: roGroupHorsProd.id })
-  await kcClient.users.addToGroup({ id: owner.id, groupId: rwGroupHorsProd.id })
-}
-
-export const deleteKeycloakGroups = async (
-  projectName: string,
-  stage: string,
-) => {
-  const kcClient = await getkcClient()
-
-  const projectGroup = await getProjectGroupByName(kcClient, projectName)
-  if (!projectGroup?.id) throw Error(`Unable to find parent group for ${projectName}`)
-
-  const subGroup = await getOrCreateChildGroup(kcClient, projectGroup.id, 'grafana')
-  if (!subGroup?.id) throw Error(`Unable to find grafana subGroup of '/${projectGroup.name}'`)
-
-  if (stage === 'prod') {
-    const roGroupProd = await getSubGroup(kcClient, projectGroup.id, 'prod-RO')
-    if (!roGroupProd?.id) throw new Error('No prod-R0 subGroup found')
-    kcClient.groups.del({ id: roGroupProd.id })
-
-    const rwGroupProd = await getSubGroup(kcClient, projectGroup.id, 'prod-RW')
-    if (!rwGroupProd?.id) throw new Error('No prod-RW subGroup found')
-    kcClient.groups.del({ id: rwGroupProd.id })
-  } else {
-    const roGroupHProd = await getSubGroup(kcClient, projectGroup.id, 'hprod-RO')
-    if (!roGroupHProd?.id) throw new Error('No hprod-R0 subGroup found')
-    kcClient.groups.del({ id: roGroupHProd.id })
-
-    const rwGroupHProd = await getSubGroup(kcClient, projectGroup.id, 'hprod-RW')
-    if (!rwGroupHProd?.id) throw new Error('No hprod-RW subGroup found')
-    kcClient.groups.del({ id: roGroupHProd.id })
-  }
+  const projectRootGroup = await getRootGroupProject(keycloakApi)
+  if (!projectRootGroup) return
+  const testMetricsGroup = await findMetricsGroup(kcClient, projectRootGroup?.id)
+  if (testMetricsGroup) return kcClient.groups.del({ id: testMetricsGroup.id })
 }

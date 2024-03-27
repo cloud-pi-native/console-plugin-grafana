@@ -1,29 +1,70 @@
-import type { EnvironmentCreateArgs, EnvironmentDeleteArgs, PermissionManageUserArgs, StepCall } from '@cpn-console/hooks'
-import { handleDelete, handleInit } from './kubernetes.js'
-import { createKeycloakGroups, deleteKeycloakGroups, manageKeycloakPermission } from './keycloak.js'
-import { containsProd, containsHorsProd } from './utils.js'
+import { parseError, type Environment, type Project, type StepCall, type UserObject } from '@cpn-console/hooks'
+import { deleteAllDataSources, deleteGrafanaInstance, ensureDataSource, ensureGrafanaInstance } from './kubernetes.js'
+import type { BaseParams, Stage } from './utils.js'
+import { KeycloakProjectApi } from '@cpn-console/keycloak-plugin/types/class.js'
+import { deleteKeycloakGroup, ensureKeycloakGroups } from './keycloak.js'
 
-export const initGrafanaInstance: StepCall<EnvironmentCreateArgs> = async (payload) => {
+const getBaseParams = (project: Project, stage: Stage): BaseParams => ({ organizationName: project.organization.name, projectName: project.name, stage })
+
+export type ListPerms = Record<'prod' | 'hors-prod', Record<'view' | 'edit', UserObject['id'][]>>
+
+const getListPrems = (environments: Environment[]): ListPerms => {
+  const allProdPerms = environments
+    .filter(env => env.stage === 'prod')
+    .map(env => env.permissions)
+    .flat()
+  const allHProdPerms = environments
+    .filter(env => env.stage !== 'prod')
+    .map(env => env.permissions)
+    .flat()
+
+  const listPerms: ListPerms = {
+    'hors-prod': {
+      edit: [],
+      view: [],
+    },
+    prod: {
+      edit: [],
+      view: [],
+    },
+  }
+  for (const permission of allProdPerms) {
+    if (permission.permissions.rw && !listPerms.prod.edit.includes(permission.userId)) {
+      listPerms.prod.edit.push(permission.userId)
+    }
+    if (permission.permissions.ro && !listPerms.prod.view.includes(permission.userId)) {
+      listPerms.prod.view.push(permission.userId)
+    }
+  }
+  for (const permission of allHProdPerms) {
+    if (permission.permissions.rw && !listPerms['hors-prod'].edit.includes(permission.userId)) {
+      listPerms['hors-prod'].edit.push(permission.userId)
+    }
+    if (permission.permissions.ro && !listPerms['hors-prod'].view.includes(permission.userId)) {
+      listPerms['hors-prod'].view.push(permission.userId)
+    }
+  }
+  return listPerms
+}
+
+export const upsertProject: StepCall<Project> = async (payload) => {
   try {
-    const { organization, project, environments, owner } = payload.args
-    const projectName = `${organization}-${project}`
+    const project = payload.args
+    const keycloakApi = payload.apis.keycloak
 
-    console.log(`Grafana plugin initialized for project: ${project}`)
+    const hasProd = project.environments.find(env => env.stage === 'prod')
+    const hasNonProd = project.environments.find(env => env.stage !== 'prod')
 
-    await createKeycloakGroups(projectName, owner)
+    const hProdParams = getBaseParams(project, 'hprod')
+    const prodParams = getBaseParams(project, 'prod')
 
-    const grafanaNameProd = `${project}-prod`
-    const grafanaNameHorsProd = `${project}-hors-prod`
-    const isProd = containsProd(environments)
-    const isNotProd = containsHorsProd(environments)
-    if (isProd) {
-      await handleInit(grafanaNameProd, project, projectName, 'prod')
-    }
-    if (isNotProd) {
-      await handleInit(grafanaNameHorsProd, project, projectName, 'hprod')
-    }
+    const listPerms = getListPrems(project.environments)
+    await Promise.all([
+      ensureKeycloakGroups(listPerms, keycloakApi),
+      ...(hasProd ? upsertGrafanaConfig(prodParams, keycloakApi) : deleteGrafanaConfig(prodParams)),
+      ...(hasNonProd ? upsertGrafanaConfig(hProdParams, keycloakApi) : deleteGrafanaConfig(hProdParams)),
+    ])
 
-    console.log(`Grafana plugin successfully initialized for project: ${project}`)
     return {
       status: {
         result: 'OK',
@@ -33,37 +74,26 @@ export const initGrafanaInstance: StepCall<EnvironmentCreateArgs> = async (paylo
   } catch (error) {
     return {
       status: {
-        result: 'OK',
+        result: 'KO',
         message: 'An error happend while creating Grafana instance',
       },
-      error: JSON.stringify(error),
+      error: parseError(error),
     }
   }
 }
 
-export const deleteGrafanaInstance: StepCall<EnvironmentDeleteArgs> = async (payload) => {
+export const deleteProject: StepCall<Project> = async (payload) => {
   try {
-    const { organization, project, environments, stage } = payload.args
-    const projectName = `${organization}-${project}`
-    const grafanaNameProd = `${project}-prod`
-    const grafanaNameHorsProd = `${project}-hors-prod`
+    const project = payload.args
 
-    // Two grafana instances : one for prod and one for not-prod
-    if (stage === 'prod') {
-      const isRemainingProdEnv = containsProd(environments)
-      // Delete prod grafana instance and kc groups only if no remaining prod environments
-      if (!isRemainingProdEnv) {
-        await handleDelete(grafanaNameProd, 'prod')
-        await deleteKeycloakGroups(projectName, stage)
-      }
-    } else {
-      const isRemainingHProdEnv = containsHorsProd(environments)
-      // Delete hprod grafana instance and kc groups only if no remaining hprod environments
-      if (!isRemainingHProdEnv) {
-        await handleDelete(grafanaNameHorsProd, 'hprod')
-        await deleteKeycloakGroups(projectName, stage)
-      }
-    }
+    const hProdParams = getBaseParams(project, 'hprod')
+    const prodParams = getBaseParams(project, 'prod')
+
+    await Promise.all([
+      deleteKeycloakGroup(payload.apis.keycloak),
+      deleteGrafanaConfig(prodParams),
+      deleteGrafanaConfig(hProdParams),
+    ])
 
     return {
       status: {
@@ -82,26 +112,13 @@ export const deleteGrafanaInstance: StepCall<EnvironmentDeleteArgs> = async (pay
   }
 }
 
-export const updatePermission: StepCall<PermissionManageUserArgs> = async (payload) => {
-  try {
-    const { organization, project, user, permissions, stage } = payload.args
-    const projectName = `${organization}-${project}`
+export const upsertGrafanaConfig = (params: BaseParams, keycloakApi: KeycloakProjectApi) => [
+  ensureDataSource(params, 'alert-manager'),
+  ensureDataSource(params, 'prometheus'),
+  ensureGrafanaInstance(params, keycloakApi),
+]
 
-    await manageKeycloakPermission(projectName, user, permissions, stage)
-
-    return {
-      status: {
-        result: 'OK',
-        message: `Permission added to user ${user.id} on '${projectName}'`,
-      },
-    }
-  } catch (error) {
-    return {
-      status: {
-        result: 'OK',
-        message: 'An error happend while adding user permission on Grafana instance',
-      },
-      error: JSON.stringify(error),
-    }
-  }
-}
+export const deleteGrafanaConfig = (params: BaseParams) => [
+  deleteGrafanaInstance(params),
+  deleteAllDataSources(params),
+]
