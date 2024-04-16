@@ -5,12 +5,12 @@ const infos: ServiceInfos = {
   name: 'grafana',
   to: ({ project, organization }) => [
     {
-      to: `https://${getConfig().grafanaHost}/${organization}-${project}-hprod`,
-      title: 'Grafana hors prod',
+      to: `https://${getConfig().grafanaHost}/hprod-${organization}-${project}`,
+      title: 'Grafana hors production',
     },
     {
-      to: `https:///${getConfig().grafanaHost}/${organization}-${project}-prod`,
-      title: 'Grafana de prod',
+      to: `https:///${getConfig().grafanaHost}/prod-${organization}-${project}`,
+      title: 'Grafana production',
     },
   ],
   title: 'Grafana',
