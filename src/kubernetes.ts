@@ -95,6 +95,7 @@ const getGrafanaInstanceObject = (params: BaseParams, roleAttributePath: string)
       labels: {
         app: grafanaName,
         dashboards: 'default',
+        project: 'enabled',
         'app.kubernetes.io/managed-by': 'dso-console',
         'dso/organization': params.organizationName,
         'dso/project': params.projectName,
@@ -322,6 +323,7 @@ export const ensureGrafanaInstance = async (params: BaseParams, keycloakApi: Key
   const { body: { items } } = await customObjectsApi.listNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', getConfig().grafanaNamespace, 'grafanas', undefined, undefined, undefined, undefined, selectors) as { body: {items: { metadata: { name: string } }[] } }
   const grafanaName = computeGrafanaName(params)
 
+  const grafanaInstanceObject = getGrafanaInstanceObject(params, roleAttributePath)
   if (items.length > 1 || (items.length === 1 && items[0]?.metadata.name !== grafanaName)) {
     await Promise.all(
       items.map(item => customObjectsApi.deleteNamespacedCustomObject(
@@ -333,10 +335,9 @@ export const ensureGrafanaInstance = async (params: BaseParams, keycloakApi: Key
       )),
     )
   } else if (items.length === 1) {
-    const spec = getGrafanaInstanceSpec(grafanaName, roleAttributePath)
-    return customObjectsApi.patchNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', getConfig().grafanaNamespace, 'grafanas', grafanaName, spec, undefined, undefined, undefined, patchOptions)
+    return customObjectsApi.patchNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', getConfig().grafanaNamespace, 'grafanas', grafanaName, { spec: grafanaInstanceObject.spec, metadata: grafanaInstanceObject.metadata }, undefined, undefined, undefined, patchOptions)
   }
-  return customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', getConfig().grafanaNamespace, 'grafanas', getGrafanaInstanceObject(params, roleAttributePath))
+  return customObjectsApi.createNamespacedCustomObject('grafana.integreatly.org', 'v1beta1', getConfig().grafanaNamespace, 'grafanas', grafanaInstanceObject)
 }
 
 export const deleteGrafanaInstance = async (params: BaseParams) => {
